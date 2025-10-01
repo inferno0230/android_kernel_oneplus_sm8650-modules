@@ -131,28 +131,9 @@ int oplus_panel_features_config(struct dsi_panel *panel)
 
 	panel->oplus_priv.vid_timming_switch_enabled = utils->read_bool(utils->data,
 			"oplus,dsi-vid-timming-switch_enable");
-	LCD_INFO("oplus,dsi-vid-timming-switch_enable: %s\n",
+	LCD_INFO("oplus,panel_init_compatibility_enable: %s\n",
 			panel->oplus_priv.vid_timming_switch_enabled ? "true" : "false");
 
-	panel->oplus_priv.dimming_setting_before_bl_0_enable = utils->read_bool(utils->data,
-			"oplus,dsi-dimming-setting-before-bl-0-enable");
-	LCD_INFO("oplus,dsi-dimming-setting-before-bl-0-enable: %s\n",
-			panel->oplus_priv.dimming_setting_before_bl_0_enable ? "true" : "false");
-
-	panel->oplus_priv.vidmode_backlight_async_wait_enable = utils->read_bool(utils->data,
-			"oplus,dsi-vidmode-backlight-async-wait-enable");
-	LCD_INFO("oplus,dsi-vidmode-backlight-async-wait-enable: %s\n",
-			panel->oplus_priv.vidmode_backlight_async_wait_enable ? "true" : "false");
-
-	panel->oplus_priv.set_backlight_not_do_esd_reg_read_enable = utils->read_bool(utils->data,
-			"oplus,dsi-set-backlight-not-do-esd-reg-read-enable");
-	LCD_INFO("oplus,dsi-set-backlight-not-do-esd-reg-read-enable: %s\n",
-			panel->oplus_priv.set_backlight_not_do_esd_reg_read_enable ? "true" : "false");
-
-	panel->oplus_priv.gamma_compensation_support = utils->read_bool(utils->data,
-			"oplus,gamma-compensation-support");
-	LCD_INFO("oplus,gamma-compensation-support: %s\n",
-			panel->oplus_priv.gamma_compensation_support ? "true" : "false");
 	return 0;
 }
 
@@ -174,7 +155,7 @@ int oplus_panel_post_on_backlight(void *display, struct dsi_panel *panel, u32 bl
 		panel->need_power_on_backlight = false;
 		rc = dsi_display_clk_ctrl(dsi_display->dsi_clk_handle,
 			DSI_CORE_CLK, DSI_CLK_ON);
-		rc |= dsi_panel_tx_cmd_set(panel, DSI_CMD_POST_ON_BACKLIGHT);
+		rc |= dsi_panel_tx_cmd_set(panel, DSI_CMD_POST_ON_BACKLIGHT, false);
 		rc |= dsi_display_clk_ctrl(dsi_display->dsi_clk_handle,
 			DSI_CORE_CLK, DSI_CLK_OFF);
 		if (rc) {
@@ -194,10 +175,7 @@ void oplus_panel_switch_vid_mode(struct dsi_display *display, struct dsi_display
 	int rc = 0;
 	int refresh_rate = 0;
 	int dsi_cmd_vid_switch = 0;
-	int te_count = 1;
-	u32 current_vblank;
 	struct dsi_panel *panel = NULL;
-	struct drm_crtc *crtc = NULL;
 
 	if (!display && !display->panel) {
 		LCD_INFO("display/panel is null!\n");
@@ -210,8 +188,7 @@ void oplus_panel_switch_vid_mode(struct dsi_display *display, struct dsi_display
 	}
 
 	panel = display->panel;
-	crtc = display->drm_conn->state->crtc;
-	if (panel->power_mode == SDE_MODE_DPMS_OFF) {
+	if (panel->power_mode != SDE_MODE_DPMS_ON) {
 		LCD_INFO("display panel in off status\n");
 		return;
 	}
@@ -236,34 +213,11 @@ void oplus_panel_switch_vid_mode(struct dsi_display *display, struct dsi_display
 	} else {
 		return;
 	}
-	if (panel->esd_config.status_mode == ESD_MODE_PANEL_MIPI_ERR_FLAG) {
-		/*skip esd check when vedio mode switch timming gamma*/
-		atomic_set(&panel->esd_pending, 1);
-	}
-
-	if (!strcmp(panel->name, "AB964 p 1 A0017 dsc video mode panel")) {
-		SDE_ATRACE_BEGIN("wait_for_vblank");
-		current_vblank = drm_crtc_vblank_count(crtc);
-		current_vblank = current_vblank + te_count;
-		if (refresh_rate == 120) {
-			rc = wait_event_timeout(*drm_crtc_vblank_waitqueue(crtc), current_vblank == drm_crtc_vblank_count(crtc), usecs_to_jiffies(4100 + 100));
-			if (!rc) {
-				OFP_ERR("crtc wait_event_timeout\n");
-			}
-		}
-		if (refresh_rate == 60) {
-			rc = wait_event_timeout(*drm_crtc_vblank_waitqueue(crtc), current_vblank == drm_crtc_vblank_count(crtc), usecs_to_jiffies(8300 + 100));
-			if (!rc) {
-				OFP_ERR("crtc wait_event_timeout\n");
-			}
-		}
-		SDE_ATRACE_END("wait_for_vblank");
-	}
 
 	SDE_ATRACE_BEGIN("oplus_panel_switch_vid_mode");
 
 	mutex_lock(&panel->panel_lock);
-	rc = dsi_panel_tx_cmd_set(panel, dsi_cmd_vid_switch);
+	rc = dsi_panel_tx_cmd_set(panel, dsi_cmd_vid_switch, false);
 	mutex_unlock(&panel->panel_lock);
 	if (rc) {
 		LCD_INFO("[%s] failed to send DSI_CMD_VID_SWITCH cmds, rc=%d\n",
@@ -296,8 +250,6 @@ void oplus_panel_update_backlight(struct dsi_panel *panel,
 {
 	int rc = 0;
 	u64 inverted_dbv_bl_lvl = 0;
-	int need_delay_te_cnt = 0;
-	int i = 0;
 	panel->pwm_params.pack_backlight = false;
 #ifdef OPLUS_FEATURE_DISPLAY_ADFR
 	if (oplus_adfr_osync_backlight_filter(panel, bl_lvl)) {
@@ -323,20 +275,6 @@ void oplus_panel_update_backlight(struct dsi_panel *panel,
 	if (panel->bl_config.oplus_limit_max_bl_mode) {
 		if (bl_lvl > panel->bl_config.oplus_limit_max_bl)
 			bl_lvl = panel->bl_config.oplus_limit_max_bl;
-	}
-
-	if (panel->oplus_priv.dimming_setting_before_bl_0_enable) {
-		if (bl_lvl == 0) {
-			if (!strcmp(panel->name, "AA577 P 3 A0020 dsc cmd mode panel")) {
-				if (oplus_last_backlight > 0) {
-					rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_DIMMING_SETTING);
-					oplus_sde_early_wakeup(panel);
-					oplus_wait_for_vsync(panel);
-				}
-			} else {
-				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_DIMMING_SETTING);
-			}
-		}
 	}
 #endif
 
@@ -370,24 +308,16 @@ void oplus_panel_update_backlight(struct dsi_panel *panel,
 	else
 		inverted_dbv_bl_lvl = bl_lvl;
 
-	/* need to delay 51 to the next frame of pwm switch cmd */
-	if (switch_pwm_in_pre_bl == 1 && panel->oplus_priv.pwm_sw_cmd_te_cnt > 0) {
+	if (switch_pwm_in_pre_bl == 1 && panel->oplus_priv.pwm_sw_cmd_te_cnt > 1) {
 		if (oplus_ofp_get_hbm_state()) {
 			LCD_INFO("lhbm on state, cancel delay 51 to next frame operation\n");
 		} else {
 			oplus_sde_early_wakeup(panel);
-			/* use pwm_sw_cmd_te_cnt to caculate interval from pwm_cmd then delay to next 2 frames of pwm_sw cmd */
-			need_delay_te_cnt = panel->oplus_priv.pwm_sw_cmd_te_cnt;
-			for (i = 0; i < need_delay_te_cnt; i++) {
-				oplus_wait_for_vsync(panel);
-			}
+			oplus_wait_for_vsync(panel);
 			if (panel->cur_mode->timing.refresh_rate == 90 || panel->cur_mode->timing.refresh_rate == 60) {
 				oplus_need_to_sync_te(panel);
-			} else {
-				/* avoid sending 51 in vproch */
-				usleep_range(1200, 1800);
 			}
-			LCD_INFO("bl_lvl %d delay to next 2 frames of pwm_switch cmd\n", bl_lvl);
+			LCD_INFO("bl_lvl %d delay to next frame for avoiding same frame with pwm_switch\n", bl_lvl);
 		}
 	}
 	switch_pwm_in_pre_bl = 0;
@@ -406,7 +336,6 @@ void oplus_panel_update_backlight(struct dsi_panel *panel,
 	} else {
 		LCD_INFO("The cmd of backlight %d was packed in other cmd\n", bl_lvl);
 		switch_pwm_in_pre_bl = 1;
-		panel->oplus_priv.pwm_sw_cmd_te_cnt = 2;
 	}
 #if defined(CONFIG_PXLW_IRIS)
 	if (iris_is_chip_supported() && !iris_is_pt_mode(panel))

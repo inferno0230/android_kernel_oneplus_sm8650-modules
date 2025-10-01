@@ -13,7 +13,6 @@
 #include "dsi_catalog.h"
 #ifdef OPLUS_FEATURE_DISPLAY
 #include "dsi_display.h"
-#include <soc/oplus/boot/oplus_project.h>
 #endif
 
 #define DSIPHY_CMN_REVISION_ID0                                   0x000
@@ -120,16 +119,12 @@
 #define DSI_DYN_REFRESH_PLL_UPPER_ADDR2        (0x098)
 
 #ifdef OPLUS_FEATURE_DISPLAY
+struct dsi_display *get_main_display(void);
 extern bool oplus_enhance_mipi_strength;
 #endif /* OPLUS_FEATURE_DISPLAY */
 
 #ifdef OPLUS_FEATURE_DISPLAY
 extern bool g_oplus_vreg_ctrl_config;
-#endif /* OPLUS_FEATURE_DISPLAY */
-
-#ifdef OPLUS_FEATURE_DISPLAY
-extern bool g_oplus_clk_vreg_ctrl_config;
-extern bool g_oplus_clk_vreg_ctrl_value;
 #endif /* OPLUS_FEATURE_DISPLAY */
 
 static int dsi_phy_hw_v5_0_is_pll_on(struct dsi_phy_hw *phy)
@@ -365,6 +360,9 @@ static void dsi_phy_hw_dphy_enable(struct dsi_phy_hw *phy, struct dsi_phy_cfg *c
 	bool split_link_enabled;
 	u32 lanes_per_sublink;
 	u32 cmn_lane_ctrl0 = 0;
+#ifdef OPLUS_FEATURE_DISPLAY
+	struct dsi_display *display = get_main_display();
+#endif /* OPLUS_FEATURE_DISPLAY */
 
 	/* Alter PHY configurations if data rate less than 1.5GHZ*/
 	if (cfg->bit_clk_rate_hz <= 1500000000)
@@ -383,17 +381,14 @@ static void dsi_phy_hw_dphy_enable(struct dsi_phy_hw *phy, struct dsi_phy_cfg *c
 		glbl_hstx_str_ctrl_0 = 0xFF;
 		if (g_oplus_vreg_ctrl_config) {
 			vreg_ctrl_0 = 0x47;
-		} else if (g_oplus_clk_vreg_ctrl_config) {
-			vreg_ctrl_0 = g_oplus_clk_vreg_ctrl_value;
+			if (display != NULL && display->panel != NULL) {
+				if(!strcmp(display->panel->name, "Dual dsi csot nt36532 video mode panel with DSC"))
+					vreg_ctrl_0 = 0x46;
+			}
 		}
-
 	} else {
 		glbl_str_swi_cal_sel_ctrl = 0x00;
 		glbl_hstx_str_ctrl_0 = 0x88;
-	}
-
-	if(is_project(23867) || is_project(23851) || is_project(23868) || is_project(23869)){
-		glbl_hstx_str_ctrl_0 = 0xEE;
 	}
 #endif /* OPLUS_FEATURE_DISPLAY */
 
@@ -455,6 +450,12 @@ static void dsi_phy_hw_dphy_enable(struct dsi_phy_hw *phy, struct dsi_phy_cfg *c
 
 	/* Select full-rate mode */
 	DSI_W32(phy, DSIPHY_CMN_CTRL_2, 0x40);
+#ifdef OPLUS_FEATURE_DISPLAY
+	if (display != NULL && display->panel != NULL) {
+		if(!strcmp(display->panel->name, "Dual dsi csot nt36532 video mode panel with DSC"))
+			DSI_W32(phy, DSIPHY_CMN_CTRL_2, 0x64);
+	}
+#endif
 
 	switch (cfg->pll_source) {
 	case DSI_PLL_SOURCE_STANDALONE:

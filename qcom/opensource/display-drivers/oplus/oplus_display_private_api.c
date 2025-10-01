@@ -99,7 +99,7 @@ EXPORT_SYMBOL(oplus_dimlayer_bl_enable);
 EXPORT_SYMBOL(oplus_dsi_log_type);
 EXPORT_SYMBOL(oplus_display_trace_enable);
 EXPORT_SYMBOL(backlight_smooth_enable);
-int shutdown_flag = 0;
+
 extern PANEL_VOLTAGE_BAK panel_vol_bak[PANEL_VOLTAGE_ID_MAX];
 extern u32 panel_pwr_vg_base;
 extern int seed_mode;
@@ -158,17 +158,17 @@ int dsi_panel_spr_mode(struct dsi_panel *panel, int mode)
 
 	switch (mode) {
 	case 0:
-		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SPR_MODE0);
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SPR_MODE0, false);
 		break;
 	case 1:
-		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SPR_MODE1);
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SPR_MODE1, false);
 		break;
 	case 2:
-		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SPR_MODE2);
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SPR_MODE2, false);
 		break;
 	default:
 		rc = dsi_panel_tx_cmd_set(panel,
-				DSI_CMD_SPR_MODE0);
+				DSI_CMD_SPR_MODE0, false);
 		LCD_ERR("[%s] Invalid spr mode %d\n",
 				panel->oplus_priv.vendor_name, mode);
 		break;
@@ -210,8 +210,8 @@ int dsi_panel_read_panel_reg(struct dsi_display_ctrl *ctrl,
 	cmdsreq.msg.rx_len = len;
 	cmdsreq.msg.flags |= MIPI_DSI_MSG_UNICAST_COMMAND;
 
-	if ((!strcmp(panel->name, "AA570 P 1 A0017 vid mode panel") || !strcmp(panel->name, "AB964 p 1 A0017 dsc video mode panel"))
-		&& panel->panel_mode == DSI_OP_VIDEO_MODE) {
+	if (!strcmp(panel->name, "AA570 P 1 A0017 vid mode panel") &&
+			panel->panel_mode == DSI_OP_VIDEO_MODE) {
 		cmdsreq.msg.flags |= MIPI_DSI_MSG_USE_LPM;
 	}
 
@@ -224,7 +224,7 @@ int dsi_panel_read_panel_reg(struct dsi_display_ctrl *ctrl,
 		goto error;
 	}
 
-	rc = dsi_ctrl_cmd_transfer(ctrl->ctrl, &cmdsreq);
+	rc = dsi_ctrl_cmd_transfer(ctrl->ctrl, &cmdsreq, false);
 	if (rc < 0) {
 		LCD_ERR("rx cmd transfer failed, rc=%d\n", rc);
 	}
@@ -274,7 +274,7 @@ int dsi_panel_read_panel_reg_unlock(struct dsi_display_ctrl *ctrl,
 		goto error;
 	}
 
-	rc = dsi_ctrl_cmd_transfer(ctrl->ctrl, &cmdsreq);
+	rc = dsi_ctrl_cmd_transfer(ctrl->ctrl, &cmdsreq, false);
 
 	if (rc < 0) {
 		pr_err("%s, dsi_display_read_panel_reg rx cmd transfer failed rc=%d\n",
@@ -619,7 +619,7 @@ static ssize_t oplus_display_get_panel_serial_number(struct kobject *obj,
 		if (display->panel->oplus_ser.is_switch_page) {
 			mutex_lock(&display->display_lock);
 			mutex_lock(&display->panel->panel_lock);
-			ret = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_PANEL_DATE_SWITCH);
+			ret = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_PANEL_DATE_SWITCH, false);
 			mutex_unlock(&display->panel->panel_lock);
 			mutex_unlock(&display->display_lock);
 			if (ret) {
@@ -707,7 +707,7 @@ static ssize_t oplus_display_get_panel_serial_number(struct kobject *obj,
 			/* switch default page */
 			mutex_lock(&display->display_lock);
 			mutex_lock(&display->panel->panel_lock);
-			ret = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_DEFAULT_SWITCH_PAGE);
+			ret = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_DEFAULT_SWITCH_PAGE, false);
 			if (ret) {
 				printk(KERN_ERR"%s Failed to set DSI_CMD_DEFAULT_SWITCH_PAGE !!\n", __func__);
 				mutex_unlock(&display->panel->panel_lock);
@@ -865,7 +865,7 @@ int oplus_display_panel_get_id_unlock(void *buf)
 	/* if (__oplus_get_power_status() == OPLUS_DISPLAY_POWER_ON) { */
 	if (display->panel->power_mode == SDE_MODE_DPMS_ON) {
 		if (!strcmp(display->panel->oplus_priv.vendor_name, "A0005")) {
-			ret = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_PANEL_INFO_SWITCH_PAGE);
+			ret = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_PANEL_INFO_SWITCH_PAGE, false);
 			if (ret < 0) {
 				DSI_ERR("Read AA545/AC090 P 3 A0005 panel id switch page failed!\n");
 			}
@@ -931,7 +931,7 @@ static ssize_t oplus_display_get_panel_id(struct kobject *obj,
 		if (!strcmp(display->panel->oplus_priv.vendor_name , "A0005")) {
 			mutex_lock(&display->display_lock);
 			mutex_lock(&display->panel->panel_lock);
-			ret = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_PANEL_INFO_SWITCH_PAGE);
+			ret = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_PANEL_INFO_SWITCH_PAGE, false);
 			mutex_unlock(&display->panel->panel_lock);
 			mutex_unlock(&display->display_lock);
 			if (ret < 0) {
@@ -1258,7 +1258,7 @@ static ssize_t oplus_display_set_hbm_max_debug(struct kobject *obj,
 		last_bl = oplus_last_backlight;
 		if (panel->cur_mode->priv_info->cmd_sets[DSI_CMD_HBM_MAX].count) {
 			mutex_lock(&panel->panel_lock);
-			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_HBM_MAX);
+			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_HBM_MAX, false);
 			mutex_unlock(&panel->panel_lock);
 		}
 		else {
@@ -1801,9 +1801,9 @@ next:
 	}
 
 	if (enable) {
-		rc = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_DATA_DIMMING_ON);
+		rc = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_DATA_DIMMING_ON, false);
 	} else {
-		rc = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_DATA_DIMMING_OFF);
+		rc = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_DATA_DIMMING_OFF, false);
 	}
 
 	if (display->config.panel_mode == DSI_OP_CMD_MODE) {
@@ -2216,9 +2216,9 @@ int dsi_update_dynamic_osc_clock(void)
 
 	if (osc_clock_rate) {
 		if (osc_clock_rate == display->panel->oplus_priv.osc_clk_mode0_rate) {
-			rc = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_OSC_CLK_MODEO0);
+			rc = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_OSC_CLK_MODEO0, false);
 		} else if (osc_clock_rate == display->panel->oplus_priv.osc_clk_mode1_rate) {
-			rc = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_OSC_CLK_MODEO1);
+			rc = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_OSC_CLK_MODEO1, false);
 		} else {
 			LCD_ERR("unsupport osc clk rate=%d\n", osc_clock_rate);
 		}
@@ -2317,10 +2317,10 @@ static ssize_t oplus_display_set_dynamic_osc_clock(struct kobject *obj,
 	}
 
 	if (osc_clk == 139600) {
-		rc = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_OSC_CLK_MODEO0);
+		rc = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_OSC_CLK_MODEO0, false);
 
 	} else {
-		rc = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_OSC_CLK_MODEO1);
+		rc = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_OSC_CLK_MODEO1, false);
 	}
 
 	if (rc) {
@@ -2667,119 +2667,13 @@ static ssize_t oplus_display_set_trace_enable_attr(struct kobject *obj,
 }
 
 #ifdef OPLUS_TRACKPOINT_REPORT
-int trackpoint_id = 0;
-static ssize_t oplus_get_trackpoint_test_attr(struct kobject *obj,
-	struct kobj_attribute *attr, char *buf)
-{
-	if (!buf) {
-		LCD_ERR("Invalid params\n");
-		return -EINVAL;
-	}
-
-	return sysfs_emit(buf, "Support trackpoint id:\n \
-		401 --> Command transfer failed\n \
-		406 --> Failed to enable host power regs\n \
-		407 --> Failed to enable power resources\n \
-		408 --> ESD check failed\n \
-		416 --> dma_tx done but irq not triggered\n \
-		418 --> wr_ptr_irq timeout failed\n \
-		422 --> SDE encoder underrun callback\n \
-		424 --> DSI_CTRL error\n \
-		425 --> DSI_PHY error\n \
-		426/427 --> [INFO] MIPI dynamic clk\n \
-		428/429 --> [INFO] OSC dynamic clk\n \
-		*** --> Trackpoint test default use 499\n \
-		Triggered trackpoint id: %d\n", trackpoint_id);
-}
-
 static ssize_t oplus_set_trackpoint_test_attr(struct kobject *obj,
 	struct kobj_attribute *attr, const char *buf, size_t count)
 {
-	if (!buf) {
-		LCD_ERR("Invalid params\n");
-		return count;
-	}
-
-	sscanf(buf, "%d", &trackpoint_id);
-
-	switch (trackpoint_id) {
-	case 401:
-		EXCEPTION_TRACKPOINT_REPORT("DisplayDriverID@@%d$$trackpoint_test: Command transfer failed",
-				trackpoint_id);
-		break;
-	case 406:
-		EXCEPTION_TRACKPOINT_REPORT("DisplayDriverID@@%d$$trackpoint_test: Failed to enable host power regs",
-				trackpoint_id);
-		break;
-	case 407:
-		EXCEPTION_TRACKPOINT_REPORT("DisplayDriverID@@%d$$trackpoint_test: Failed to enable power resources",
-				trackpoint_id);
-		break;
-	case 408:
-		EXCEPTION_TRACKPOINT_REPORT("DisplayDriverID@@%d$$trackpoint_test: ESD check failed",
-				trackpoint_id);
-		break;
-	case 416:
-		EXCEPTION_TRACKPOINT_REPORT("DisplayDriverID@@%d$$trackpoint_test: dma_tx done but irq not triggered",
-				trackpoint_id);
-		break;
-	case 418:
-		EXCEPTION_TRACKPOINT_REPORT("DisplayDriverID@@%d$$trackpoint_test: wr_ptr_irq timeout failed",
-				trackpoint_id);
-		break;
-	case 422:
-		EXCEPTION_TRACKPOINT_REPORT("DisplayDriverID@@%d$$trackpoint_test: SDE encoder underrun callback",
-				trackpoint_id);
-		break;
-	case 424:
-		EXCEPTION_TRACKPOINT_REPORT("DisplayDriverID@@%d$$trackpoint_test: DSI_CTRL error",
-				trackpoint_id);
-		break;
-	case 425:
-		EXCEPTION_TRACKPOINT_REPORT("DisplayDriverID@@%d$$trackpoint_test: DSI_PHY error",
-				trackpoint_id);
-		break;
-	case 426:
-	case 427:
-		INFO_TRACKPOINT_REPORT("DisplayDriverID@@%d$$trackpoint_test: [INFO] MIPI dynamic clk",
-				trackpoint_id);
-		break;
-	case 428:
-	case 429:
-		INFO_TRACKPOINT_REPORT("DisplayDriverID@@%d$$trackpoint_test: [INFO] OSC dynamic clk",
-				trackpoint_id);
-		break;
-	default:
-		LCD_WARN("Use default trackpoint_id:499 for invalid input: %s\n", buf);
-		trackpoint_id = 499;
-		EXCEPTION_TRACKPOINT_REPORT("DisplayDriverID@@%d$$trackpoint_test: %s",
-				trackpoint_id, buf);
-		break;
-	}
-
+	EXCEPTION_TRACKPOINT_REPORT("DisplayDriverID@@499$$trackpoint_test:%s", buf);
 	return count;
 }
 #endif /* OPLUS_TRACKPOINT_REPORT */
-
-static ssize_t oplus_get_shutdownflag(struct kobject *obj,
-		struct kobj_attribute *attr, char *buf)
-{
-	printk(KERN_INFO "get shutdown_flag = %d\n", shutdown_flag);
-	return sprintf(buf, "%d\n", shutdown_flag);
-}
-
-static ssize_t oplus_set_shutdownflag(struct kobject *obj,
-		struct kobj_attribute *attr,
-		const char *buf, size_t count)
-{
-	int flag = 0;
-	sscanf(buf, "%du", &flag);
-	if (1 == flag) {
-		shutdown_flag = 1;
-	}
-	pr_err("shutdown_flag = %d\n", shutdown_flag);
-	return count;
-}
 
 static ssize_t oplus_display_get_fp_state(struct kobject *obj,
 	struct kobj_attribute *attr, char *buf)
@@ -2878,12 +2772,10 @@ static OPLUS_ATTR(dimlayer_hbm, S_IRUGO | S_IWUSR, oplus_ofp_get_dimlayer_hbm_at
 static OPLUS_ATTR(notify_fppress, S_IRUGO | S_IWUSR, NULL, oplus_ofp_notify_fp_press_attr);
 static OPLUS_ATTR(aod_light_mode_set, S_IRUGO | S_IWUSR, oplus_ofp_get_aod_light_mode_attr, oplus_ofp_set_aod_light_mode_attr);
 static OPLUS_ATTR(ultra_low_power_aod_mode, S_IRUGO | S_IWUSR, oplus_ofp_get_ultra_low_power_aod_mode_attr, oplus_ofp_set_ultra_low_power_aod_mode_attr);
-static OPLUS_ATTR(longrui_aod, S_IRUGO | S_IWUSR, oplus_ofp_get_longrui_aod_config_attr, oplus_ofp_set_longrui_aod_mode_attr);
 #endif /* OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT */
 #ifdef OPLUS_TRACKPOINT_REPORT
-static OPLUS_ATTR(trackpoint_test, S_IRUGO | S_IWUSR, oplus_get_trackpoint_test_attr, oplus_set_trackpoint_test_attr);
+static OPLUS_ATTR(trackpoint_test, S_IWUSR, NULL, oplus_set_trackpoint_test_attr);
 #endif /* OPLUS_TRACKPOINT_REPORT */
-static OPLUS_ATTR(shutdownflag, S_IRUGO | S_IWUSR, oplus_get_shutdownflag, oplus_set_shutdownflag);
 
 /*
  * Create a group of attributes so that we can create and destroy them all
@@ -2947,12 +2839,10 @@ static struct attribute *oplus_display_attrs[] = {
 	&oplus_attr_notify_fppress.attr,
 	&oplus_attr_aod_light_mode_set.attr,
 	&oplus_attr_ultra_low_power_aod_mode.attr,
-	&oplus_attr_longrui_aod.attr,
 #endif /* OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT */
 #ifdef OPLUS_TRACKPOINT_REPORT
 	&oplus_attr_trackpoint_test.attr,
 #endif /* OPLUS_TRACKPOINT_REPORT */
-	&oplus_attr_shutdownflag.attr,
 	NULL,	/* need to NULL terminate the list of attributes */
 };
 

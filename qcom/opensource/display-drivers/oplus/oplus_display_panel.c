@@ -106,10 +106,6 @@ static const struct panel_ioctl_desc panel_ioctls[] = {
 	PANEL_IOCTL_DEF(PANEL_IOCTL_GET_PWM_PULSE, oplus_display_panel_get_pwm_pulse),
 	PANEL_IOCTL_DEF(PANEL_IOCTL_SET_HBM_MAX, oplus_display_panel_set_hbm_max),
 	PANEL_IOCTL_DEF(PANEL_IOCTL_GET_HBM_MAX, oplus_display_panel_get_hbm_max),
-	PANEL_IOCTL_DEF(PANEL_IOCTL_SET_SHUTDOWN_FLAG, oplus_display_set_shutdown_flag),
-	PANEL_IOCTL_DEF(PANEL_IOCTL_SET_LONGRUI_AOD, oplus_ofp_set_longrui_aod_mode),
-	PANEL_IOCTL_DEF(PANEL_IOCTL_GET_LONGRUI_AOD, oplus_ofp_get_longrui_aod_config),
-	PANEL_IOCTL_DEF(PANEL_IOCTL_SET_DC_COMPENSATE, oplus_display_panel_set_dc_compensate),
 };
 
 int oplus_display_fix_apollo_level(void)
@@ -349,8 +345,7 @@ long panel_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	if (!strcmp(ioctl->name, "PANEL_IOCTL_GET_OPLUS_BRIGHTNESS")
 			|| !strcmp(ioctl->name, "PANEL_IOCTL_GET_DIM_ALPHA")
 			|| !strcmp(ioctl->name, "PANEL_IOCTL_GET_DIM_DC_ALPHA")
-			|| !strcmp(ioctl->name, "PANEL_IOCTL_GET_CABC_STATUS")
-			|| !strcmp(ioctl->name, "PANEL_IOCTL_GET_DYNAMIC_TE")) {
+			|| !strcmp(ioctl->name, "PANEL_IOCTL_GET_CABC_STATUS")) {
 		LCD_DEBUG("pid = %d, cmd = %s\n",
 				task_pid_nr(current), ioctl->name);
 	} else {

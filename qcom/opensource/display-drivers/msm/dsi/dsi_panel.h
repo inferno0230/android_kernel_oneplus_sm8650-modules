@@ -59,33 +59,14 @@ struct oplus_pwm_turbo_params {
 	bool oplus_pwm_switch_state_changed;
 	u32 pwm_bl_threshold;									/* qcom switch bl plus oplus,pwm-switch-backlight-threshold */
 	bool pwm_onepulse_support;
-	u32 pwm_onepulse_enabled;
+	bool pwm_onepulse_enabled;
 	bool pwm_switch_restore_support;
 	bool pwm_wait_te_tx;
 	bool directional_onepulse_switch;
 	bool pack_backlight;
-	bool pwm_switch_support_dc;
-	u32 oplus_dynamic_pulse;
-	u32 oplus_last_dynamic_pulse;
-	int oplus_pulse_mutual_fps_flag;
-	bool oplus_aod_mutual_fps_flag;
-	bool pwm_switch_support_extend_mode;
-	ktime_t aod_off_timestamp;
-	ktime_t into_aod_timestamp;
-};
+	/*as the judgment of the first light screen */
+	bool post_power_on;
 
-enum oplus_pwm_pulse {
-	THREE_EIGHTEEN_PULSE = 0,
-	ONE_EIGHTEEN_PULSE,
-	ONE_ONE_PULSE,
-};
-
-/* In 120hz general solution, L1, L2, L3 means 1 Pulse 3 Pulse and 18 Pulse */
-enum PWM_STATE {
-	PWM_STATE_L1 = 0,
-	PWM_STATE_L2,
-	PWM_STATE_L3,
-	PWM_STATE_MAXNUM,
 };
 #endif /* OPLUS_FEATURE_DISPLAY */
 
@@ -98,7 +79,6 @@ enum PWM_STATE {
 #define DSI_CMD_PPS_HDR_SIZE 7
 #define DSI_MODE_MAX 32
 
-#define INTO_OUT_AOD_INTERVOL (45*1000)
 /*
  * Defining custom dsi msg flag.
  * Using upper byte of flag field for custom DSI flags.
@@ -156,6 +136,12 @@ struct dsi_dfps_capabilities {
 	u32 *dfps_list;
 	u32 dfps_list_len;
 	bool dfps_support;
+	u32 *dfps_hfp_list;
+	u32 *dfps_hbp_list;
+	u32 *dfps_hpw_list;
+	u32 *dfps_vbp_list;
+	u32 *dfps_vfp_list;
+	u32 *dfps_vpw_list;
 };
 
 struct dsi_qsync_capabilities {
@@ -248,8 +234,6 @@ struct dsi_panel_oplus_privite {
 	u32 fp_type;
 	bool enhance_mipi_strength;
 	bool oplus_vreg_ctrl_flag;
-	bool oplus_clk_vreg_ctrl_flag;
-	u32 oplus_clk_vreg_ctrl_value;
 	/* add for all wait te demand */
 	u32 wait_te_config;
 	bool need_sync;
@@ -258,13 +242,6 @@ struct dsi_panel_oplus_privite {
 	bool oplus_bl_demura_dbv_support;
 	int bl_demura_mode;
 	bool vid_timming_switch_enabled;
-	bool dimming_setting_before_bl_0_enable;
-	bool vidmode_backlight_async_wait_enable;
-	bool set_backlight_not_do_esd_reg_read_enable;
-	bool gamma_compensation_support;
-	/* indicates how many frames cost from aod off cmd sent to normal frame,
-	"0" means once aod off cmd sent the next frame will be normal frame */
-	unsigned int aod_off_frame_cost;
 };
 
 struct dsi_panel_oplus_serial_number {
@@ -364,10 +341,6 @@ enum esd_check_status_mode {
 	ESD_MODE_REG_READ,
 	ESD_MODE_SW_BTA,
 	ESD_MODE_PANEL_TE,
-#ifdef OPLUS_FEATURE_DISPLAY
-	/* add for esd check MIPI ERR flag mode */
-	ESD_MODE_PANEL_MIPI_ERR_FLAG,
-#endif /* OPLUS_FEATURE_DISPLAY */
 	ESD_MODE_SW_SIM_SUCCESS,
 	ESD_MODE_SW_SIM_FAILURE,
 #ifdef OPLUS_FEATURE_DISPLAY
@@ -392,8 +365,6 @@ struct drm_panel_esd_config {
 	bool esd_debug_enabled;
 	int esd_error_flag_gpio;
 	int esd_error_flag_gpio_slave;
-	/* add for esd check MIPI ERR flag mode, add gpio as irq*/
-	int mipi_err_flag_gpio;
 #endif /* OPLUS_FEATURE_DISPLAY */
 };
 
@@ -429,6 +400,7 @@ struct dsi_panel {
 	bool panel_ack_disabled;
 
 	struct mutex panel_lock;
+	bool peripheral_flush_ongoing;
 	struct drm_panel drm_panel;
 	struct mipi_dsi_host *host;
 	struct device *parent;
@@ -496,7 +468,6 @@ struct dsi_panel {
 	struct oplus_pwm_turbo_params pwm_params;
 	int panel_id2;
 	atomic_t esd_pending;
-	atomic_t vidmode_backlight_async_wait;
 	struct mutex panel_tx_lock;
 	struct mutex oplus_ffc_lock;
 	ktime_t te_timestamp;
@@ -661,6 +632,9 @@ void dsi_panel_dealloc_cmd_packets(struct dsi_panel_cmd_set *set);
 
 #ifdef OPLUS_FEATURE_DISPLAY
 int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
-		enum dsi_cmd_set_type type);
+		enum dsi_cmd_set_type type, bool do_peripheral_flush);
 #endif /* OPLUS_FEATURE_DISPLAY */
+
+int dsi_panel_send_cmd(struct dsi_panel *panel,
+		struct msm_display_conn_params *params, enum dsi_cmd_set_type type);
 #endif /* _DSI_PANEL_H_ */

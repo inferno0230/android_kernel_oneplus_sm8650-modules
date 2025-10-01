@@ -220,7 +220,7 @@ static void _iris_dsc_parse_info(void)
 
 static void _iris_dsc_init_param(void)
 {
-	IRIS_LOGD("%s()", __func__);
+	IRIS_LOGI("%s()", __func__);
 
 	iris_dsc_active_path = DSC_PPS_SET_CNT;
 }
@@ -1422,7 +1422,6 @@ static uint32_t iris_expect_model_size;
 static uint32_t iris_loaded_model_size;
 static uint32_t iris_ioinc_filter[FILTER_GROUP_CNT] = {16, 16};
 static uint32_t iris_dynamic_model_index = CNN_NORMAL_MODEL1;
-static bool iris_need_trig_dynamic_model;
 static int32_t iris_aux_h;
 static int32_t iris_aux_v;
 static uint32_t iris_bld_scl_pos = SCL_PP_POS_CNT;
@@ -1485,7 +1484,7 @@ static void _iris_scl_reset_datapath(void)
 	struct iris_cfg *pcfg = iris_get_cfg();
 	uint32_t *payload = NULL;
 
-	IRIS_LOGD("%s()", __func__);
+	IRIS_LOGI("%s()", __func__);
 
 	payload = iris_get_ipopt_payload_data(IRIS_IP_PWIL, 0x01, 4);
 	if (payload == NULL) {
@@ -1622,7 +1621,7 @@ static void _iris_scl_reset_seq(void)
 
 static void _iris_scl_init_param(void)
 {
-	IRIS_LOGD("%s()", __func__);
+	IRIS_LOGI("%s()", __func__);
 
 	_iris_scl_reset_datapath();
 	_iris_scl_reset_param();
@@ -1635,7 +1634,6 @@ static void _iris_scl_setting_off(void)
 	IRIS_LOGI("%s()", __func__);
 
 	iris_dynamic_model_index = CNN_NORMAL_MODEL1;
-	iris_need_trig_dynamic_model = false;
 }
 
 static uint32_t _iris_ioinc_change_type(bool enable,
@@ -3068,18 +3066,6 @@ void iris_scl_change_model(uint32_t count, uint32_t *values)
 	_iris_scl_change_model_proc(cnn_model);
 }
 
-static bool _iris_trig_dynamic_model(void)
-{
-	if (!iris_need_trig_dynamic_model)
-		return false;
-
-	IRIS_LOGI("%s(), force trigging dynamic CNN model.", __func__);
-	_iris_scl_change_model_proc(iris_dynamic_model_index);
-	iris_need_trig_dynamic_model = false;
-	iris_dynamic_model_index = CNN_NORMAL_MODEL1;
-	return true;
-}
-
 static void _iris_scl_ptsr_switch_proc(bool enable,
 		uint32_t proc_h, uint32_t proc_v)
 {
@@ -3091,9 +3077,6 @@ static void _iris_scl_ptsr_switch_proc(bool enable,
 	_iris_scl_perform(enable, IRIS_SCL_INOUT, proc_h, proc_v,
 			pcfg->frc_setting.disp_hres, pcfg->frc_setting.disp_vres,
 			iris_expected_strategy[SCL_DATA_PATH1], SCL_DATA_PATH1, false);
-
-	if (enable)
-		_iris_trig_dynamic_model();
 }
 
 static void _iris_scl_ptsr_switch(uint32_t count, uint32_t *values)
@@ -3239,11 +3222,8 @@ static void _iris_scl_cnn_update(uint32_t type)
 		IRIS_LOGE("%s(), invalid type: %u", __func__, type);
 		return;
 	}
-	if (type == SCL_DATA_PATH0 && _iris_trig_dynamic_model())
-		return;
 
 	_iris_scl_change_model_proc(iris_cnn_models[type]);
-
 }
 
 static bool _iris_scl_update_pq(uint32_t type)
@@ -4296,8 +4276,7 @@ static void srcnn_replace_model(void)
 				ktime_to_us(ktime1 - ktime0),
 				ktime_to_us(ktime_get() - ktime1));
 	} else {
-		iris_dynamic_model_index = model_index;
-		iris_need_trig_dynamic_model = true;
+		iris_dynamic_model_index  = model_index;
 
 		IRIS_LOGI("%s(), time cost %llu us.",
 				__func__, ktime_to_us(ktime_get() - ktime0));

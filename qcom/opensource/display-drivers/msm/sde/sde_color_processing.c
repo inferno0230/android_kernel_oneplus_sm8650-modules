@@ -1437,7 +1437,6 @@ static int _sde_cp_crtc_cache_property_helper(struct drm_crtc *crtc,
 	return ret;
 }
 
-
 #ifdef OPLUS_FEATURE_DISPLAY
 struct sde_kms *get_kms_(struct drm_crtc *crtc)
 {
@@ -2218,7 +2217,7 @@ int sde_cp_crtc_check_properties(struct drm_crtc *crtc,
 	old_mode = &crtc->state->adjusted_mode;
 	new_mode = &state->adjusted_mode;
 	if ((old_mode->hdisplay != new_mode->hdisplay) ||
-	(old_mode->vdisplay != new_mode->vdisplay))
+		(old_mode->vdisplay != new_mode->vdisplay))
 		sde_cp_crtc_res_change(crtc);
 
 	mutex_lock(&sde_crtc->crtc_cp_lock);

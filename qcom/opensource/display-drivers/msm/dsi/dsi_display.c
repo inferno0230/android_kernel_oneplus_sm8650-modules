@@ -38,7 +38,6 @@
 #include "../oplus/oplus_display_panel_common.h"
 #include "../oplus/oplus_display_panel.h"
 #include "../oplus/oplus_display_interface.h"
-#include "../oplus/oplus_bl.h"
 #include <soc/oplus/system/oplus_project.h>
 #endif /* OPLUS_FEATURE_DISPLAY */
 
@@ -74,7 +73,6 @@ static struct dsi_display *secondary_display;
 extern int oplus_display_panel_get_id2(void);
 extern int lcd_closebl_flag;
 extern bool is_lhbm_panel;
-extern bool g_gamma_regs_read_done;
 #endif /* OPLUS_FEATURE_DISPLAY */
 #define SEC_PANEL_NAME_MAX_LEN  256
 
@@ -285,8 +283,14 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 #endif /* OPLUS_FEATURE_DISPLAY */
 
 	panel = dsi_display->panel;
-
+#ifdef OPLUS_FEATURE_DISPLAY
+	/* DSI Command mode panel need panel_lock when send cmd */
+	if (dsi_display->config.panel_mode == DSI_OP_CMD_MODE) {
+		mutex_lock(&panel->panel_lock);
+	}
+#else
 	mutex_lock(&panel->panel_lock);
+#endif
 	if (!dsi_panel_initialized(panel)) {
 		rc = -EINVAL;
 		goto error;
@@ -334,7 +338,14 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 		DSI_ERR("unable to set backlight\n");
 
 error:
+#ifdef OPLUS_FEATURE_DISPLAY
+	/* DSI Command mode panel need panel_lock when send cmd */
+	if (dsi_display->config.panel_mode == DSI_OP_CMD_MODE) {
+		mutex_unlock(&panel->panel_lock);
+	}
+#else
 	mutex_unlock(&panel->panel_lock);
+#endif
 
 #ifdef OPLUS_FEATURE_DISPLAY_ADFR
 	oplus_adfr_sa_mode_restore(dsi_display);
@@ -403,27 +414,6 @@ done:
 int iris_display_cmd_engine_enable(struct dsi_display *display)
 {
 	return dsi_display_cmd_engine_enable(display);
-}
-
-u32 iris_display_get_dsi_clk_rate(struct dsi_display *display)
-{
-	int rc = 0;
-	struct link_clk_freq link_freq;
-	u32 clk_rate_hz = 0;
-
-	rc = dsi_clk_get_link_frequencies(&link_freq, display->dsi_clk_handle,
-					display->clk_master_idx);
-
-	if (rc) {
-		DSI_ERR("Failed to get link frequencies\n");
-		return rc;
-	}
-
-	DSI_INFO("byte_clk_rate: %u pix_clk_rate: %u", link_freq.byte_clk_rate, link_freq.pix_clk_rate);
-
-	clk_rate_hz = link_freq.byte_clk_rate * 8;
-
-	return clk_rate_hz;
 }
 #endif
 
@@ -865,14 +855,6 @@ static void dsi_display_set_cmd_tx_ctrl_flags(struct dsi_display *display,
 		 */
 		if (display->panel->panel_mode == DSI_OP_VIDEO_MODE) {
 			flags |= DSI_CTRL_CMD_CUSTOM_DMA_SCHED;
-#ifdef OPLUS_FEATURE_DISPLAY
-			//MIPI_DCS_SET_DISPLAY_BRIGHTNES
-			if ((display->panel->oplus_priv.vidmode_backlight_async_wait_enable)
-				&& (atomic_read(&display->panel->vidmode_backlight_async_wait))
-				&& (((unsigned char*)(msg->tx_buf))[0] == 0x51)) {
-				flags |= DSI_CTRL_CMD_ASYNC_WAIT;
-			}
-#endif /* OPLUS_FEATURE_DISPLAY */
 		} else {
 			if (msg->flags & MIPI_DSI_MSG_CMD_DMA_SCHED)
 				flags |= DSI_CTRL_CMD_CUSTOM_DMA_SCHED;
@@ -935,7 +917,7 @@ static int dsi_display_read_status(struct dsi_display_ctrl *ctrl,
 	if (phy_pll_bypass(display))
 		return 0;
 #ifdef OPLUS_FEATURE_DISPLAY
-	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_ESD_SWITCH_PAGE);
+	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_ESD_SWITCH_PAGE, false);
 	if (rc) {
 		DSI_ERR("[%s] failed to send DSI_CMD_ESD_SWITCH_PAGE, rc=%d\n", panel->name, rc);
 		return rc;
@@ -981,7 +963,7 @@ static int dsi_display_read_status(struct dsi_display_ctrl *ctrl,
 			return rc;
 		}
 
-		rc = dsi_ctrl_cmd_transfer(ctrl->ctrl, &cmds[i]);
+		rc = dsi_ctrl_cmd_transfer(ctrl->ctrl, &cmds[i], false);
 		if (rc <= 0) {
 			DSI_ERR("rx cmd transfer failed rc=%d\n", rc);
 		} else {
@@ -1117,6 +1099,8 @@ static int dsi_display_status_check_error_flag(struct dsi_display *display)
 	int read_value = 0;
 	int read_value_slave = 0;
 	struct drm_panel_esd_config *esd_config;
+	char payload[1024] = "";
+	u32 cnt = 0;
 
 	if (!display || !display->panel) {
 		LCD_ERR("[ESD] Invalid params\n");
@@ -1165,9 +1149,13 @@ static int dsi_display_status_check_error_flag(struct dsi_display *display)
 			read_value_slave = gpio_get_value(esd_config->esd_error_flag_gpio_slave);
 			LCD_INFO("[ESD]: second read: master=%d slave=%d\n", read_value, read_value_slave);
 			if (read_value || read_value_slave) {
-				LCD_ERR("[ESD]: check failed! rc=%d\n", rc);
 				gpio_free(esd_config->esd_error_flag_gpio);
 				gpio_free(esd_config->esd_error_flag_gpio_slave);
+				cnt += scnprintf(payload + cnt, sizeof(payload) - cnt, "DisplayDriverID@@408$$");
+				cnt += scnprintf(payload + cnt, sizeof(payload) - cnt, "ESD:");
+				cnt += scnprintf(payload + cnt, sizeof(payload) - cnt, "master_0x%x, slave_0x%x",
+						read_value, read_value_slave);
+				DSI_MM_ERR("ESD check failed:%s\n", payload);
 				return -EINVAL;
 			}
 		}
@@ -1241,9 +1229,14 @@ int dsi_display_check_status(struct drm_connector *connector, void *display,
 		oplus_temp_compensation_temp_check(display);
 	}
 #endif /* OPLUS_FEATURE_DISPLAY_TEMP_COMPENSATION */
-
+#ifdef OPLUS_FEATURE_DISPLAY
+	/* DSI Command mode panel need panel_lock when send cmd */
+	if (dsi_display->config.panel_mode == DSI_OP_CMD_MODE) {
+		dsi_panel_acquire_panel_lock(panel);
+	}
+#else
 	dsi_panel_acquire_panel_lock(panel);
-
+#endif
 	if (!panel->panel_initialized) {
 		DSI_DEBUG("Panel not initialized\n");
 		goto release_panel_lock;
@@ -1256,16 +1249,6 @@ int dsi_display_check_status(struct drm_connector *connector, void *display,
 #ifdef OPLUS_FEATURE_DISPLAY
 	if (atomic_read(&panel->esd_pending)) {
 		DSI_WARN("Skip the check because esd is pending\n");
-		if (!strcmp(dsi_display->panel->name, "AB964 p 1 A0017 dsc video mode panel")) {
-			if (dsi_display->panel->oplus_priv.set_backlight_not_do_esd_reg_read_enable
-			&& dsi_display->panel->panel_mode == DSI_OP_VIDEO_MODE) {
-				atomic_set(&panel->esd_pending, 0);
-			}
-		}
-		goto release_panel_lock;
-	}
-	if (panel->power_mode != SDE_MODE_DPMS_ON) {
-		DSI_WARN("Skip the check because panel power mode not power on!\n");
 		goto release_panel_lock;
 	}
 #endif /* OPLUS_FEATURE_DISPLAY */
@@ -1307,9 +1290,6 @@ int dsi_display_check_status(struct drm_connector *connector, void *display,
 	else if (status_mode == ESD_MODE_PANEL_ERROR_FLAG) {
 		rc = dsi_display_status_check_error_flag(dsi_display);
 	}
-	else if (status_mode == ESD_MODE_PANEL_MIPI_ERR_FLAG) {
-		rc = oplus_display_status_check_mipi_err_gpio(dsi_display);
-	}
 #endif /* OPLUS_FEATURE_DISPLAY */
 	else {
 		DSI_WARN("Unsupported check status mode: %d\n", status_mode);
@@ -1334,7 +1314,14 @@ int dsi_display_check_status(struct drm_connector *connector, void *display,
 
 	dsi_display_clk_ctrl(dsi_display->dsi_clk_handle, DSI_ALL_CLKS, DSI_CLK_OFF);
 release_panel_lock:
+#ifdef OPLUS_FEATURE_DISPLAY
+	/* DSI Command mode panel need panel_lock when send cmd */
+	if (dsi_display->config.panel_mode == DSI_OP_CMD_MODE) {
+		dsi_panel_release_panel_lock(panel);
+	}
+#else
 	dsi_panel_release_panel_lock(panel);
+#endif
 	SDE_EVT32(SDE_EVTLOG_FUNC_EXIT, rc);
 
 	return rc;
@@ -1402,7 +1389,8 @@ static int dsi_display_cmd_rx(struct dsi_display *display,
 		DSI_ERR("prepare for rx cmd transfer failed rc = %d\n", rc);
 		goto enable_error_interrupts;
 	}
-	rc = dsi_ctrl_cmd_transfer(m_ctrl->ctrl, cmd);
+
+	rc = dsi_ctrl_cmd_transfer(m_ctrl->ctrl, cmd, false);
 	if (rc <= 0)
 		DSI_ERR("rx cmd transfer failed rc = %d\n", rc);
 	dsi_ctrl_transfer_unprepare(m_ctrl->ctrl, cmd->ctrl_flags);
@@ -1418,7 +1406,7 @@ release_panel_lock:
 
 int dsi_display_cmd_transfer(struct drm_connector *connector,
 		void *display, const char *cmd_buf,
-		u32 cmd_buf_len)
+		u32 cmd_buf_len, bool do_peripheral_flush)
 {
 	struct dsi_display *dsi_display = display;
 	int rc = 0, cnt = 0, i = 0;
@@ -1492,7 +1480,7 @@ int dsi_display_cmd_transfer(struct drm_connector *connector,
 
 		dsi_panel_acquire_panel_lock(dsi_display->panel);
 		for (i = 0; i < cnt; i++) {
-			rc = dsi_host_transfer_sub(&dsi_display->host, cmds);
+			rc = dsi_host_transfer_sub(&dsi_display->host, cmds, do_peripheral_flush);
 			if (rc < 0) {
 				DSI_ERR("failed to send command, rc=%d\n", rc);
 				break;
@@ -3621,7 +3609,8 @@ static int dsi_display_wake_up(struct dsi_display *display)
 	return 0;
 }
 
-static int dsi_display_broadcast_cmd(struct dsi_display *display, struct dsi_cmd_desc *cmd)
+static int dsi_display_broadcast_cmd(struct dsi_display *display, struct dsi_cmd_desc *cmd,
+		bool do_peripheral_flush)
 {
 	int rc = 0;
 	struct dsi_display_ctrl *ctrl, *m_ctrl;
@@ -3654,7 +3643,8 @@ static int dsi_display_broadcast_cmd(struct dsi_display *display, struct dsi_cmd
 	}
 
 	cmd->ctrl_flags |= DSI_CTRL_CMD_BROADCAST_MASTER;
-	rc = dsi_ctrl_cmd_transfer(m_ctrl->ctrl, cmd);
+
+	rc = dsi_ctrl_cmd_transfer(m_ctrl->ctrl, cmd, do_peripheral_flush);
 	if (rc) {
 		DSI_ERR("[%s] cmd transfer failed on master,rc=%d\n",
 		       display->name, rc);
@@ -3667,7 +3657,7 @@ static int dsi_display_broadcast_cmd(struct dsi_display *display, struct dsi_cmd
 		if (ctrl == m_ctrl)
 			continue;
 
-		rc = dsi_ctrl_cmd_transfer(ctrl->ctrl, cmd);
+		rc = dsi_ctrl_cmd_transfer(ctrl->ctrl, cmd, do_peripheral_flush);
 		if (rc) {
 			DSI_ERR("[%s] cmd transfer failed, rc=%d\n",
 			       display->name, rc);
@@ -3755,7 +3745,8 @@ static int dsi_host_detach(struct mipi_dsi_host *host,
 	return 0;
 }
 
-int dsi_host_transfer_sub(struct mipi_dsi_host *host, struct dsi_cmd_desc *cmd)
+int dsi_host_transfer_sub(struct mipi_dsi_host *host, struct dsi_cmd_desc *cmd,
+			  bool do_peripheral_flush)
 {
 	struct dsi_display *display;
 	struct dsi_display_ctrl *ctrl;
@@ -3815,7 +3806,7 @@ int dsi_host_transfer_sub(struct mipi_dsi_host *host, struct dsi_cmd_desc *cmd)
 	}
 
 	if (cmd->ctrl_flags & DSI_CTRL_CMD_BROADCAST) {
-		rc = dsi_display_broadcast_cmd(display, cmd);
+		rc = dsi_display_broadcast_cmd(display, cmd, do_peripheral_flush);
 		if (rc) {
 			DSI_ERR("[%s] cmd broadcast failed, rc=%d\n", display->name, rc);
 			goto error;
@@ -3832,20 +3823,18 @@ int dsi_host_transfer_sub(struct mipi_dsi_host *host, struct dsi_cmd_desc *cmd)
 #endif
 
 		rc = dsi_ctrl_transfer_prepare(display->ctrl[idx].ctrl, cmd->ctrl_flags);
-
 		if (rc) {
 			DSI_ERR("failed to prepare for command transfer: %d\n", rc);
 			goto error;
 		}
 
-		rc = dsi_ctrl_cmd_transfer(display->ctrl[idx].ctrl, cmd);
+		rc = dsi_ctrl_cmd_transfer(display->ctrl[idx].ctrl, cmd, do_peripheral_flush);
 #if defined(CONFIG_PXLW_IRIS)
 		if (iris_is_chip_supported()) {
 			if (rc > 0)
 				rc = 0;
 		}
 #endif
-
 		if (rc)
 			DSI_ERR("[%s] cmd transfer failed, rc=%d\n", display->name, rc);
 
@@ -3871,7 +3860,7 @@ static ssize_t dsi_host_transfer(struct mipi_dsi_host *host, const struct mipi_d
 	cmd.post_wait_ms = 0;
 	cmd.ctrl_flags = 0;
 
-	rc = dsi_host_transfer_sub(host, &cmd);
+	rc = dsi_host_transfer_sub(host, &cmd, false);
 
 	return rc;
 }
@@ -4795,7 +4784,8 @@ static bool dsi_display_is_seamless_dfps_possible(
 		DSI_DEBUG("timing.h_back_porch differs %d %d\n",
 				cur->timing.h_back_porch,
 				tgt->timing.h_back_porch);
-		return false;
+		if (dfps_type != DSI_DFPS_IMMEDIATE_HV_P)
+			return false;
 	}
 
 	if (cur->timing.h_sync_width != tgt->timing.h_sync_width) {
@@ -4809,7 +4799,7 @@ static bool dsi_display_is_seamless_dfps_possible(
 		DSI_DEBUG("timing.h_front_porch differs %d %d\n",
 				cur->timing.h_front_porch,
 				tgt->timing.h_front_porch);
-		if (dfps_type != DSI_DFPS_IMMEDIATE_HFP)
+		if ((dfps_type != DSI_DFPS_IMMEDIATE_HFP) && (dfps_type != DSI_DFPS_IMMEDIATE_HV_P))
 			return false;
 	}
 
@@ -4847,7 +4837,7 @@ static bool dsi_display_is_seamless_dfps_possible(
 		DSI_DEBUG("timing.v_front_porch differs %d %d\n",
 				cur->timing.v_front_porch,
 				tgt->timing.v_front_porch);
-		if (dfps_type != DSI_DFPS_IMMEDIATE_VFP)
+		if ((dfps_type != DSI_DFPS_IMMEDIATE_VFP) && (dfps_type != DSI_DFPS_IMMEDIATE_HV_P))
 			return false;
 	}
 
@@ -5250,19 +5240,15 @@ static int dsi_display_dynamic_clk_configure_cmd(struct dsi_display *display,
 	}
 
 	if (clk_rate == display->cached_clk_rate) {
-#ifndef OPLUS_FEATURE_DISPLAY
 		DSI_INFO("%s: ignore duplicated DSI clk setting\n", __func__);
 		return rc;
-#else
-		DSI_INFO("%s: duplicated DSI clk setting, still set it\n", __func__);
-#endif
 	}
 
 	display->cached_clk_rate = clk_rate;
 
 	rc = dsi_display_update_dsi_bitrate(display, clk_rate);
 	if (!rc) {
-		DSI_INFO("%s: bit clk is ready to be configured to '%d'\n",
+		DSI_DEBUG("%s: bit clk is ready to be configured to '%d'\n",
 				__func__, clk_rate);
 		atomic_set(&display->clkrate_change_pending, 1);
 	} else {
@@ -5412,7 +5398,7 @@ static int dsi_display_dfps_calc_front_porch(
  */
 static int dsi_display_get_dfps_timing(struct dsi_display *display,
 			struct dsi_display_mode *adj_mode,
-				u32 curr_refresh_rate)
+				u32 curr_refresh_rate, int i)
 {
 	struct dsi_dfps_capabilities dfps_caps;
 	struct dsi_display_mode per_ctrl_mode;
@@ -5482,10 +5468,40 @@ static int dsi_display_get_dfps_timing(struct dsi_display *display,
 			adj_mode->timing.h_front_porch *= display->ctrl_count;
 		break;
 
+	case DSI_DFPS_IMMEDIATE_HV_P:
+		if (i < 0)
+			break;
+
+		if (!dfps_caps.dfps_hfp_list) {
+			DSI_ERR("dfps_caps.dfps_hfp_list is null ptr!");
+			break;
+        }
+
+		adj_mode->timing.h_front_porch = dfps_caps.dfps_hfp_list[i] *= display->ctrl_count;
+		adj_mode->timing.h_back_porch = dfps_caps.dfps_hbp_list[i] *= display->ctrl_count;
+		adj_mode->timing.h_sync_width = dfps_caps.dfps_hpw_list[i] *= display->ctrl_count;
+		adj_mode->timing.v_back_porch = dfps_caps.dfps_vbp_list[i];
+		adj_mode->timing.v_front_porch = dfps_caps.dfps_vfp_list[i];
+		adj_mode->timing.v_sync_width = dfps_caps.dfps_vpw_list[i];
+
+		SDE_EVT32(SDE_EVTLOG_FUNC_CASE3, DSI_DFPS_IMMEDIATE_HV_P,
+			curr_refresh_rate, timing->refresh_rate);
+		SDE_EVT32(adj_mode->timing.h_front_porch, adj_mode->timing.h_back_porch,
+			adj_mode->timing.h_sync_width, adj_mode->timing.v_back_porch,
+			adj_mode->timing.v_front_porch, adj_mode->timing.v_sync_width);
+		break;
+
 	default:
 		DSI_ERR("Unsupported DFPS mode %d\n", dfps_caps.type);
 		rc = -ENOTSUPP;
 	}
+
+	DSI_INFO("dfps_type=%d, cur_fps=%d, adj_fps=%d, h_active=%d, v_active=%d, hfp:%d, fbp:%d, hpw:%d, vbp:%d, vfp:%d, vpw:%d",
+		dfps_caps.type, curr_refresh_rate, timing->refresh_rate,
+		adj_mode->timing.h_active, adj_mode->timing.v_active,
+		adj_mode->timing.h_front_porch, adj_mode->timing.h_back_porch,
+		adj_mode->timing.h_sync_width, adj_mode->timing.v_back_porch,
+		adj_mode->timing.v_front_porch, adj_mode->timing.v_sync_width);
 
 	return rc;
 }
@@ -5501,7 +5517,7 @@ static bool dsi_display_validate_mode_seamless(struct dsi_display *display,
 	}
 
 	/* Currently the only seamless transition is dynamic fps */
-	rc = dsi_display_get_dfps_timing(display, adj_mode, 0);
+	rc = dsi_display_get_dfps_timing(display, adj_mode, 0, -1);
 	if (rc) {
 		DSI_DEBUG("Dynamic FPS not supported for seamless\n");
 	} else {
@@ -5933,7 +5949,7 @@ static int dsi_display_force_update_dsi_clk(struct dsi_display *display)
 	rc = dsi_display_link_clk_force_update_ctrl(display->dsi_clk_handle);
 
 	if (!rc) {
-		DSI_INFO("dsi bit clk has been configured to %d\n",
+		DSI_DEBUG("dsi bit clk has been configured to %d\n",
 			display->cached_clk_rate);
 
 		atomic_set(&display->clkrate_change_pending, 0);
@@ -6071,7 +6087,6 @@ static int dsi_display_pre_acquire(void *data)
 	return 0;
 }
 
-
 #ifdef OPLUS_FEATURE_DISPLAY
 extern int oplus_display_private_api_init(void);
 extern void  oplus_display_private_api_exit(void);
@@ -6108,7 +6123,6 @@ static int dsi_display_init_ctrl(struct dsi_display *display)
 
 	return rc;
 }
-
 
 /**
  * dsi_display_bind - bind dsi device with controlling device
@@ -7843,7 +7857,7 @@ int dsi_display_get_modes_helper(struct dsi_display *display,
 			}
 
 			dsi_display_get_dfps_timing(display, sub_mode,
-					curr_refresh_rate);
+					curr_refresh_rate, i);
 
 			/* Avoid override for first sub mode in POMS enabled video mode usecase */
 			if ((i != start) && support_cmd_mode && support_video_mode)
@@ -9195,6 +9209,32 @@ exit:
 	return rc;
 }
 
+static int dsi_display_send_pre_commit_cmd(struct dsi_display *display, struct msm_display_conn_params *params)
+{
+	u32 idx;
+	int rc = 0;
+	if (!params || !display) {
+		DSI_ERR("Invalid params\n");
+		return -EINVAL;
+	}
+
+	mutex_lock(&display->display_lock);
+
+	for (idx = 0; idx < sizeof(params->cmd_bit_mask) * 8; idx++) {
+		if (params->cmd_bit_mask & BIT(idx)) {
+			rc = dsi_panel_send_cmd(display->panel, params, idx);
+			SDE_EVT32(idx, rc);
+			if (rc) {
+				DSI_ERR("fail cmd idx:%d rc:%d\n", idx, rc);
+				goto exit;
+			}
+		}
+	}
+exit:
+	mutex_unlock(&display->display_lock);
+	return rc;
+}
+
 static int dsi_display_set_roi(struct dsi_display *display,
 		struct msm_roi_list *rois)
 {
@@ -9375,6 +9415,9 @@ int dsi_display_pre_commit(void *display,
 		return -EINVAL;
 	}
 
+	if (params->cmd_bit_mask)
+		dsi_display_send_pre_commit_cmd(display, params);
+
 	if (params->qsync_update) {
 		enable = (params->qsync_mode > 0) ? true : false;
 		rc = dsi_display_qsync(display, enable);
@@ -9453,20 +9496,6 @@ int dsi_display_enable(struct dsi_display *display)
 		oplus_display_update_current_display();
 		__oplus_set_power_status(OPLUS_DISPLAY_POWER_ON);
 		display->panel->power_mode = SDE_MODE_DPMS_ON;
-		/* Force update of demurra2 offset from UEFI stage to Kernel stage*/
-		oplus_panel_need_to_set_demura2_offset(display->panel);
-
-		if (!strcmp(display->panel->name, "AA577 P 3 A0020 dsc cmd mode panel")) {
-			oplus_display_panel_A0020_gamma_compensation(display);
-			DSI_ERR("oplus_display_panel_A0020_gamma_compensation success\n");
-			if (display->panel->oplus_priv.gamma_compensation_support && g_gamma_regs_read_done) {
-				rc = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_GAMMA_COMPENSATION);
-				if (rc) {
-				DSI_ERR("send DSI_CMD_GAMMA_COMPENSATION failed\n");
-				}
-			}
-		}
-
 #endif /* OPLUS_FEATURE_DISPLAY */
 		return 0;
 	}
@@ -9491,9 +9520,6 @@ int dsi_display_enable(struct dsi_display *display)
 		}
 #ifdef OPLUS_FEATURE_DISPLAY
 		oplus_display_update_current_display();
-		/* Force update of demurra2 offset when panel power on*/
-		oplus_panel_need_to_set_demura2_offset(display->panel);
-		oplus_panel_switch_vid_mode(display, mode);
 #endif /* OPLUS_FEATURE_DISPLAY */
 #ifdef OPLUS_FEATURE_DISPLAY_ADFR
 		oplus_adfr_need_resend_osync_cmd(display, true);
@@ -9504,9 +9530,7 @@ int dsi_display_enable(struct dsi_display *display)
 #endif /* OPLUS_FEATURE_DISPLAY */
 
 	}
-
 	dsi_display_panel_id_notification(display);
-
 	/* Block sending pps command if modeset is due to fps difference */
 	if ((mode->priv_info->dsc_enabled ||
 			mode->priv_info->vdc_enabled) &&
@@ -9548,7 +9572,6 @@ int dsi_display_enable(struct dsi_display *display)
 		display->panel->ts_timestamp = ktime_get();
 #endif /* OPLUS_FEATURE_DISPLAY */
 		rc = dsi_panel_switch(display->panel);
-
 		if (rc)
 			DSI_ERR("[%s] failed to switch DSI panel mode, rc=%d\n",
 				   display->name, rc);
@@ -9620,9 +9643,9 @@ int dsi_display_post_enable(struct dsi_display *display)
 			DSI_MODE_FLAG_POMS_TO_CMD) {
 		dsi_panel_switch_cmd_mode_in(display->panel);
 	} else if (display->panel->cur_mode->dsi_mode_flags &
-			DSI_MODE_FLAG_POMS_TO_VID) {
+			DSI_MODE_FLAG_POMS_TO_VID)
 		dsi_panel_switch_video_mode_in(display->panel);
-	} else {
+	else {
 		rc = dsi_panel_post_enable(display->panel);
 		if (rc)
 			DSI_ERR("[%s] panel post-enable failed, rc=%d\n",

@@ -25,11 +25,6 @@
 #define OPLUS_DISPLAY_EARLY_EVENT_BLANK		0x02
 
 #ifdef OPLUS_TRACKPOINT_REPORT
-#define INFO_TRACKPOINT_REPORT(fmt, ...)	\
-	do { \
-			pr_info(fmt, ##__VA_ARGS__); \
-			display_info_trackpoint_report(fmt, ##__VA_ARGS__); \
-		} while (0)
 #define EXCEPTION_TRACKPOINT_REPORT(fmt, ...)	\
 	do { \
 			pr_err(fmt, ##__VA_ARGS__); \
@@ -242,6 +237,5 @@ void oplus_display_set_current_display(void *dsi_display);
 void oplus_display_update_current_display(void);
 struct dsi_display *oplus_display_get_current_display(void);
 
-int oplus_display_panel_A0020_gamma_compensation(struct dsi_display *display);
 #endif /* _OPLUS_DSI_SUPPORT_H_ */
 

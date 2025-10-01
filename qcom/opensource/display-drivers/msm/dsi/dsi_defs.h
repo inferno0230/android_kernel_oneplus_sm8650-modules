@@ -33,46 +33,27 @@
 								##__VA_ARGS__)
 
 #ifdef OPLUS_FEATURE_DISPLAY
-#ifdef OPLUS_TRACKPOINT_REPORT
-#include <soc/oplus/oplus_trackpoint_report.h>
+#include <soc/oplus/system/oplus_mm_kevent_fb.h>
 #define DSI_MM_ERR(fmt, ...)	\
 	do { \
 			DRM_DEV_ERROR(NULL, "[msm-dsi-error]: " fmt, ##__VA_ARGS__); \
-			display_exception_trackpoint_report(fmt, ##__VA_ARGS__); \
+			mm_fb_display_kevent_named(MM_FB_KEY_RATELIMIT_1H, fmt, ##__VA_ARGS__); \
 		} while(0)
 #define DSI_MM_WARN(fmt, ...)	\
 	do { \
 			DRM_WARN("[msm-dsi-warn]: " fmt, ##__VA_ARGS__); \
-			display_info_trackpoint_report(fmt, ##__VA_ARGS__); \
+			mm_fb_display_kevent_named(MM_FB_KEY_RATELIMIT_1H, fmt, ##__VA_ARGS__); \
 		} while(0)
 #define DSI_MM_INFO(fmt, ...)	\
 	do { \
 			DRM_DEV_INFO(NULL, "[msm-dsi-info]: " fmt, ##__VA_ARGS__); \
-			display_info_trackpoint_report(fmt, ##__VA_ARGS__); \
+			mm_fb_display_kevent_named(MM_FB_KEY_RATELIMIT_1H, fmt, ##__VA_ARGS__); \
 		} while(0)
 #define DSI_MM_DEBUG(fmt, ...)	\
 	do { \
 			DRM_DEV_DEBUG(NULL, "[msm-dsi-debug]: " fmt, ##__VA_ARGS__); \
-			display_info_trackpoint_report(fmt, ##__VA_ARGS__); \
+			mm_fb_display_kevent_named(MM_FB_KEY_RATELIMIT_1H, fmt, ##__VA_ARGS__); \
 		} while(0)
-#else
-#define DSI_MM_ERR(fmt, ...)	\
-	do { \
-			DRM_DEV_ERROR(NULL, "[msm-dsi-error]: " fmt, ##__VA_ARGS__); \
-		} while(0)
-#define DSI_MM_WARN(fmt, ...)	\
-	do { \
-			DRM_WARN("[msm-dsi-warn]: " fmt, ##__VA_ARGS__); \
-		} while(0)
-#define DSI_MM_INFO(fmt, ...)	\
-	do { \
-			DRM_DEV_INFO(NULL, "[msm-dsi-info]: " fmt, ##__VA_ARGS__); \
-		} while(0)
-#define DSI_MM_DEBUG(fmt, ...)	\
-	do { \
-			DRM_DEV_DEBUG(NULL, "[msm-dsi-debug]: " fmt, ##__VA_ARGS__); \
-		} while(0)
-#endif /* OPLUS_TRACKPOINT_REPORT */
 #endif /* OPLUS_FEATURE_DISPLAY */
 
 /**
@@ -268,6 +249,7 @@ enum dsi_dfps_type {
 	DSI_DFPS_IMMEDIATE_CLK,
 	DSI_DFPS_IMMEDIATE_HFP,
 	DSI_DFPS_IMMEDIATE_VFP,
+	DSI_DFPS_IMMEDIATE_HV_P,
 	DSI_DFPS_MAX
 };
 
@@ -314,6 +296,7 @@ enum dsi_dyn_clk_feature_type {
  * @DSI_CMD_SET_POST_TIMING_SWITCH:        Post timing switch
  * @DSI_CMD_SET_QSYNC_ON                   Enable qsync mode
  * @DSI_CMD_SET_QSYNC_OFF                  Disable qsync mode
+ * @DSI_CMD_SET_FPS_SWITCH		   Set fps switch
  * @DSI_CMD_SET_CALIBRATION_DATA           Panel calibration data
  * @DSI_CMD_SET_MAX
  */
@@ -337,13 +320,19 @@ enum dsi_cmd_set_type {
 	DSI_CMD_SET_LP1,
 	DSI_CMD_SET_LP2,
 	DSI_CMD_SET_NOLP,
-	DSI_CMD_SET_NOLP_ONEPULSE,
 	DSI_CMD_SET_PPS,
 	DSI_CMD_SET_ROI,
 	DSI_CMD_SET_TIMING_SWITCH,
 	DSI_CMD_SET_POST_TIMING_SWITCH,
 	DSI_CMD_SET_QSYNC_ON,
 	DSI_CMD_SET_QSYNC_OFF,
+	DSI_CMD_SET_FPS_SWITCH_120,
+	DSI_CMD_SET_FPS_SWITCH_90,
+	DSI_CMD_SET_FPS_SWITCH_60,
+	DSI_CMD_SET_FPS_SWITCH_50,
+	DSI_CMD_SET_FPS_SWITCH_48,
+	DSI_CMD_SET_FPS_SWITCH_30,
+	DSI_CMD_SET_FPS_SWITCH_144,
 	DSI_CMD_SET_CALIBRATION_DATA,
 #ifdef OPLUS_FEATURE_DISPLAY_ADFR
 	DSI_CMD_ADFR_AUTO_ON,
@@ -378,21 +367,6 @@ enum dsi_cmd_set_type {
 	DSI_CMD_HPWM_ADFR_MIN_FPS_12,
 	DSI_CMD_HPWM_ADFR_MIN_FPS_13,
 	DSI_CMD_HPWM_ADFR_MIN_FPS_14,
-	DSI_CMD_BIGDC_ADFR_MIN_FPS_0,
-	DSI_CMD_BIGDC_ADFR_MIN_FPS_1,
-	DSI_CMD_BIGDC_ADFR_MIN_FPS_2,
-	DSI_CMD_BIGDC_ADFR_MIN_FPS_3,
-	DSI_CMD_BIGDC_ADFR_MIN_FPS_4,
-	DSI_CMD_BIGDC_ADFR_MIN_FPS_5,
-	DSI_CMD_BIGDC_ADFR_MIN_FPS_6,
-	DSI_CMD_BIGDC_ADFR_MIN_FPS_7,
-	DSI_CMD_BIGDC_ADFR_MIN_FPS_8,
-	DSI_CMD_BIGDC_ADFR_MIN_FPS_9,
-	DSI_CMD_BIGDC_ADFR_MIN_FPS_10,
-	DSI_CMD_BIGDC_ADFR_MIN_FPS_11,
-	DSI_CMD_BIGDC_ADFR_MIN_FPS_12,
-	DSI_CMD_BIGDC_ADFR_MIN_FPS_13,
-	DSI_CMD_BIGDC_ADFR_MIN_FPS_14,
 	DSI_CMD_ADFR_FAKEFRAME,
 	DSI_CMD_ADFR_PRE_SWITCH,
 #endif /* OPLUS_FEATURE_DISPLAY_ADFR */
@@ -405,10 +379,6 @@ enum dsi_cmd_set_type {
 	DSI_CMD_HPWM_ADFR_HIGH_PRECISION_FPS_1,
 	DSI_CMD_HPWM_ADFR_HIGH_PRECISION_FPS_2,
 	DSI_CMD_HPWM_ADFR_HIGH_PRECISION_FPS_3,
-	DSI_CMD_BIGDC_ADFR_HIGH_PRECISION_FPS_0,
-	DSI_CMD_BIGDC_ADFR_HIGH_PRECISION_FPS_1,
-	DSI_CMD_BIGDC_ADFR_HIGH_PRECISION_FPS_2,
-	DSI_CMD_BIGDC_ADFR_HIGH_PRECISION_FPS_3,
 	DSI_CMD_ADFR_HIGH_PRECISION_TE_SHIFT_ON,
 	DSI_CMD_ADFR_HIGH_PRECISION_TE_SHIFT_OFF,
 #endif /* OPLUS_FEATURE_DISPLAY_HIGH_PRECISION */
@@ -419,9 +389,7 @@ enum dsi_cmd_set_type {
 #ifdef OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT
 	DSI_CMD_HBM_ON,
 	DSI_CMD_HBM_ON_ONEPULSE,
-	DSI_CMD_HBM_ON_60HZ,
 	DSI_CMD_HBM_OFF,
-	DSI_CMD_HBM_OFF_60HZ,
 	DSI_CMD_LHBM_PRESSED_ICON_GAMMA,
 	DSI_CMD_LHBM_PRESSED_ICON_GRAYSCALE,
 	DSI_CMD_LHBM_PRESSED_ICON_ON,
@@ -434,8 +402,6 @@ enum dsi_cmd_set_type {
 	DSI_CMD_AOD_LOW_LIGHT_MODE,
 	DSI_CMD_ULTRA_LOW_POWER_AOD_ON,
 	DSI_CMD_ULTRA_LOW_POWER_AOD_OFF,
-	DSI_CMD_AOD_OFF_COMPENSATION,
-	DSI_CMD_AOD_OFF_COMPENSATION_ONEPULSE,
 #endif /* OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT */
 #ifdef OPLUS_FEATURE_DISPLAY
 	DSI_CMD_POST_ON_BACKLIGHT,
@@ -469,13 +435,10 @@ enum dsi_cmd_set_type {
 	DSI_CMD_HBM_EXIT_SWITCH,
 	DSI_CMD_HBM_MAX,
 	DSI_CMD_EXIT_HBM_MAX,
-	DSI_CMD_DIMMING_SETTING,
 	DSI_CMD_PWM_SWITCH_ONEPULSE,
 	DSI_CMD_TIMMING_PWM_SWITCH_ONEPULSE,
 	DSI_CMD_PWM_SWITCH_1TO3,
 	DSI_CMD_PWM_SWITCH_3TO1,
-	DSI_CMD_PWM_SWITCH_1TO18,
-	DSI_CMD_PWM_SWITCH_18TO1,
 	DSI_CMD_PWM_SWITCH_THREEPULSE,
 	DSI_CMD_PWM_SWITCH_HIGH,
 	DSI_CMD_PWM_SWITCH_LOW,
@@ -522,19 +485,6 @@ enum dsi_cmd_set_type {
 	DSI_CMD_SET_DEMURA2_OFFSET2,
 	DSI_CMD_SET_DEMURA2_OFFSET3,
 	DSI_CMD_SET_DEMURA2_OFFSET4,
-	DSI_CMD_UIR_ON_LOADING_EFFECT_MODE1,
-	DSI_CMD_UIR_ON_LOADING_EFFECT_MODE2,
-	DSI_CMD_UIR_ON_LOADING_EFFECT_MODE3,
-	DSI_CMD_UIR_OFF_LOADING_EFFECT_MODE1,
-	DSI_CMD_UIR_OFF_LOADING_EFFECT_MODE2,
-	DSI_CMD_UIR_OFF_LOADING_EFFECT_MODE3,
-	DSI_CMD_UIR_LOADING_EFFECT_MODE1,
-	DSI_CMD_UIR_LOADING_EFFECT_MODE2,
-	DSI_CMD_UIR_LOADING_EFFECT_MODE3,
-	DSI_CMD_SET_DC_ON,
-	DSI_CMD_GAMMA_COMPENSATION_PAGE0,
-	DSI_CMD_GAMMA_COMPENSATION_PAGE1,
-	DSI_CMD_GAMMA_COMPENSATION,
 #endif /* OPLUS_FEATURE_DISPLAY */
 	DSI_CMD_SET_MAX
 };
@@ -918,7 +868,6 @@ struct dsi_display_mode_priv_info {
 	struct msm_roi_caps roi_caps;
 	bool widebus_support;
 	u32 allowed_mode_switch;
-
 	bool disable_rsc_solver;
 #ifdef OPLUS_FEATURE_DISPLAY
 	/* Add for apollo */
@@ -935,7 +884,6 @@ struct dsi_display_mode_priv_info {
 	unsigned char oplus_adfr_min_fps_mapping_table_count;
 	unsigned int oplus_adfr_fakeframe_config;
 	unsigned int oplus_adfr_idle_off_min_fps;
-	bool oplus_adfr_idle_min_fps_log;
 #endif /* OPLUS_FEATURE_DISPLAY_ADFR */
 #ifdef OPLUS_FEATURE_DISPLAY_HIGH_PRECISION
 	unsigned int *oplus_adfr_high_precision_fps_mapping_table;
@@ -1118,11 +1066,13 @@ static inline bool dsi_is_type_cphy(struct dsi_host_common_cfg *cfg)
 
 /**
  * dsi_host_transfer_sub() - transfers DSI commands from host to panel
- * @host:    pointer to the DSI mipi host device
- * @cmd:     DSI command to be transferred
+ * @host:                pointer to the DSI mipi host device
+ * @cmd:                 DSI command to be transferred
+ * @do_peripheral_flush: Flag for sending this command with peripheral flush
  *
  * Return: error code.
  */
-int dsi_host_transfer_sub(struct mipi_dsi_host *host, struct dsi_cmd_desc *cmd);
+int dsi_host_transfer_sub(struct mipi_dsi_host *host, struct dsi_cmd_desc *cmd,
+			  bool do_peripheral_flush);
 
 #endif /* _DSI_DEFS_H_ */

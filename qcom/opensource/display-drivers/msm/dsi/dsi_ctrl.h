@@ -619,6 +619,7 @@ int dsi_ctrl_transfer_prepare(struct dsi_ctrl *dsi_ctrl, u32 flags);
  * dsi_ctrl_cmd_transfer() - Transfer commands on DSI link
  * @dsi_ctrl:             DSI controller handle.
  * @cmd:                  Description of the cmd to be sent.
+ * @do_peripheral_flush:  Flag for sending this command with peripheral flush.
  *
  * Command transfer can be done only when command engine is enabled. The
  * transfer API will until either the command transfer finishes or the timeout
@@ -627,7 +628,8 @@ int dsi_ctrl_transfer_prepare(struct dsi_ctrl *dsi_ctrl, u32 flags);
  *
  * Return: error code.
  */
-int dsi_ctrl_cmd_transfer(struct dsi_ctrl *dsi_ctrl, struct dsi_cmd_desc *cmd);
+int dsi_ctrl_cmd_transfer(struct dsi_ctrl *dsi_ctrl, struct dsi_cmd_desc *cmd,
+			  bool do_peripheral_flush);
 
 /**
  * dsi_ctrl_transfer_unprepare() - Clean up post a command transfer
@@ -953,12 +955,11 @@ void dsi_ctrl_toggle_error_interrupt_status(struct dsi_ctrl *dsi_ctrl, bool enab
  */
 void dsi_ctrl_transfer_cleanup(struct dsi_ctrl *dsi_ctrl);
 
+int dsi_ctrl_override_dma_cmd_trig(struct dsi_ctrl *dsi_ctrl, enum dsi_trigger_type type);
 /**
  * dsi_ctrl_flush_cmd_dma_queue() - Wait fot previous command transfer to complete
  *				and flush any pending post_cmd_transfer works.
  * @dsi_ctrl:                 DSI controller handle.
  */
 void dsi_ctrl_flush_cmd_dma_queue(struct dsi_ctrl *dsi_ctrl);
-
-int dsi_ctrl_override_dma_cmd_trig(struct dsi_ctrl *dsi_ctrl, enum dsi_trigger_type type);
 #endif /* _DSI_CTRL_H_ */

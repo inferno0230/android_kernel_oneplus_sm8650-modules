@@ -13,10 +13,6 @@
 #include "sde_trace.h"
 #include <drm/drm_fixed.h>
 
-#ifdef OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT
-#include "../oplus/oplus_onscreenfingerprint.h"
-#endif /* OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT */
-
 #define SDE_DEBUG_VIDENC(e, fmt, ...) SDE_DEBUG("enc%d intf%d " fmt, \
 		(e) && (e)->base.parent ? \
 		(e)->base.parent->base.id : -1, \
@@ -238,7 +234,7 @@ static u32 programmable_fetch_get_num_lines(
 	if (start_of_frame_lines >= needed_prefill_lines) {
 		SDE_DEBUG_VIDENC(vid_enc,
 				"prog fetch always enabled case\n");
-		actual_vfp_lines = (test_bit(SDE_FEATURE_DELAY_PRG_FETCH, m->features)) ? 2 : 1;
+		actual_vfp_lines = (test_bit(SDE_FEATURE_DELAY_PRG_FETCH, m->features)) ? 25 : 1;
 	} else if (v_front_porch < needed_vfp_lines) {
 		/* Warn fetch needed, but not enough porch in panel config */
 		pr_warn_once
@@ -585,14 +581,6 @@ not_flushed:
 
 	/* Signal any waiting atomic commit thread */
 	wake_up_all(&phys_enc->pending_kickoff_wq);
-
-#ifdef OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT
-	if (oplus_ofp_is_supported()) {
-		oplus_ofp_panel_hbm_status_update(phys_enc);
-		oplus_ofp_notify_uiready(phys_enc);
-	}
-#endif /* OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT */
-
 	SDE_ATRACE_END("vblank_irq");
 }
 

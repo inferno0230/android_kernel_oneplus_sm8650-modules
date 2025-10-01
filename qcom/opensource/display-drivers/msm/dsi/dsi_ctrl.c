@@ -29,6 +29,7 @@
 #include "sde_dbg.h"
 
 #ifdef OPLUS_FEATURE_DISPLAY
+#include <soc/oplus/system/oplus_mm_kevent_fb.h>
 #include "../oplus/oplus_display_interface.h"
 #endif /* OPLUS_FEATURE_DISPLAY */
 
@@ -56,21 +57,14 @@
 		c ? c->name : "inv", ##__VA_ARGS__)
 
 #ifdef OPLUS_FEATURE_DISPLAY
-#ifdef OPLUS_TRACKPOINT_REPORT
-#include <soc/oplus/oplus_trackpoint_report.h>
 #define DSI_CTRL_MM_ERR(c, fmt, ...) \
 	do { \
 		DRM_DEV_ERROR(NULL, "[msm-dsi-error]: %s: "\
 				fmt, c ? c->name : "inv", ##__VA_ARGS__); \
-		display_exception_trackpoint_report(fmt, ##__VA_ARGS__); \
+		mm_fb_display_kevent_named(MM_FB_KEY_RATELIMIT_1H, fmt, ##__VA_ARGS__); \
 	} while(0)
-#else
-#define DSI_CTRL_MM_ERR(c, fmt, ...) \
-	do { \
-		DRM_DEV_ERROR(NULL, "[msm-dsi-error]: %s: "\
-				fmt, c ? c->name : "inv", ##__VA_ARGS__); \
-	} while(0)
-#endif /* OPLUS_TRACKPOINT_REPORT */
+
+extern bool c_do_peripheral_flush;
 #endif /* OPLUS_FEATURE_DISPLAY */
 
 struct dsi_ctrl_list_item {
@@ -1360,7 +1354,7 @@ int dsi_message_validate_tx_mode(struct dsi_ctrl *dsi_ctrl,
 }
 
 static void dsi_configure_command_scheduling(struct dsi_ctrl *dsi_ctrl,
-		struct dsi_ctrl_cmd_dma_info *cmd_mem)
+		struct dsi_ctrl_cmd_dma_info *cmd_mem, bool do_peripheral_flush)
 {
 	u32 line_no = 0, window = 0, sched_line_no = 0;
 	struct dsi_ctrl_hw_ops dsi_hw_ops = dsi_ctrl->hw.ops;
@@ -1400,7 +1394,7 @@ static void dsi_configure_command_scheduling(struct dsi_ctrl *dsi_ctrl,
 			sched_line_no += timing->v_back_porch +
 				timing->v_sync_width + timing->v_active;
 		}
-		dsi_hw_ops.schedule_dma_cmd(&dsi_ctrl->hw, sched_line_no);
+		dsi_hw_ops.schedule_dma_cmd(&dsi_ctrl->hw, sched_line_no, do_peripheral_flush);
 	}
 
 	/*
@@ -1446,7 +1440,7 @@ static void dsi_kickoff_msg_tx(struct dsi_ctrl *dsi_ctrl,
 				const struct mipi_dsi_msg *msg,
 				struct dsi_ctrl_cmd_dma_fifo_info *cmd,
 				struct dsi_ctrl_cmd_dma_info *cmd_mem,
-				u32 flags)
+				u32 flags, bool do_peripheral_flush)
 {
 	u32 hw_flags = 0;
 	struct dsi_ctrl_hw_ops dsi_hw_ops = dsi_ctrl->hw.ops;
@@ -1463,7 +1457,7 @@ static void dsi_kickoff_msg_tx(struct dsi_ctrl *dsi_ctrl,
 
 	if (dsi_hw_ops.init_cmddma_trig_ctrl)
 		dsi_hw_ops.init_cmddma_trig_ctrl(&dsi_ctrl->hw,
-				&dsi_ctrl->host_config.common_config);
+				&dsi_ctrl->host_config.common_config, do_peripheral_flush);
 
 	/*
 	 * Always enable DMA scheduling for video mode panel.
@@ -1471,16 +1465,16 @@ static void dsi_kickoff_msg_tx(struct dsi_ctrl *dsi_ctrl,
 	 * In video mode panel, if the DMA is triggered very close to
 	 * the beginning of the active window and the DMA transfer
 	 * happens in the last line of VBP, then the HW state will
-	 * stay in 'wait' and return to 'idle' in the first line of VFP.
+	 * stay in ‘wait’ and return to ‘idle’ in the first line of VFP.
 	 * But somewhere in the middle of the active window, if SW
 	 * disables DSI command mode engine while the HW is still
 	 * waiting and re-enable after timing engine is OFF. So the
-	 * HW never 'sees' another vblank line and hence it gets
-	 * stuck in the 'wait' state.
+	 * HW never ‘sees’ another vblank line and hence it gets
+	 * stuck in the ‘wait’ state.
 	 */
 	if ((flags & DSI_CTRL_CMD_CUSTOM_DMA_SCHED) ||
 		(dsi_ctrl->host_config.panel_mode == DSI_OP_VIDEO_MODE))
-		dsi_configure_command_scheduling(dsi_ctrl, cmd_mem);
+		dsi_configure_command_scheduling(dsi_ctrl, cmd_mem, do_peripheral_flush);
 
 	dsi_ctrl->cmd_mode = (dsi_ctrl->host_config.panel_mode ==
 			DSI_OP_CMD_MODE);
@@ -1564,7 +1558,8 @@ static void dsi_kickoff_msg_tx(struct dsi_ctrl *dsi_ctrl,
 	}
 }
 
-static int dsi_message_tx(struct dsi_ctrl *dsi_ctrl, struct dsi_cmd_desc *cmd_desc)
+static int dsi_message_tx(struct dsi_ctrl *dsi_ctrl, struct dsi_cmd_desc *cmd_desc,
+			  bool do_peripheral_flush)
 {
 	int rc = 0;
 	struct mipi_dsi_packet packet;
@@ -1661,17 +1656,16 @@ static int dsi_message_tx(struct dsi_ctrl *dsi_ctrl, struct dsi_cmd_desc *cmd_de
 
 		cmdbuf = (u8 *)(dsi_ctrl->vaddr);
 
+		for (cnt = 0; cnt < length; cnt++)
+			cmdbuf[dsi_ctrl->cmd_len + cnt] = buffer[cnt];
+
+		dsi_ctrl->cmd_len += length;
 #if defined(CONFIG_PXLW_IRIS)
 		if (!iris_is_chip_supported())
 			msm_gem_sync(dsi_ctrl->tx_cmd_buf);
 #else
 		msm_gem_sync(dsi_ctrl->tx_cmd_buf);
 #endif
-		for (cnt = 0; cnt < length; cnt++)
-			cmdbuf[dsi_ctrl->cmd_len + cnt] = buffer[cnt];
-
-		dsi_ctrl->cmd_len += length;
-		msm_gem_sync(dsi_ctrl->tx_cmd_buf);
 
 		if (*flags & DSI_CTRL_CMD_LAST_COMMAND) {
 			cmd_mem.length = dsi_ctrl->cmd_len;
@@ -1696,7 +1690,7 @@ kickoff:
 	LCD_DEBUG_CMD("dsi_cmd: kickoff, ctrl_flags=0x%02X, msg_flags=0x%02X",
 			*flags, msg->flags);
 #endif /* OPLUS_FEATURE_DISPLAY */
-	dsi_kickoff_msg_tx(dsi_ctrl, msg, &cmd, &cmd_mem, *flags);
+	dsi_kickoff_msg_tx(dsi_ctrl, msg, &cmd, &cmd_mem, *flags, do_peripheral_flush);
 error:
 	if (buffer)
 		devm_kfree(&dsi_ctrl->pdev->dev, buffer);
@@ -1722,7 +1716,7 @@ static int dsi_set_max_return_size(struct dsi_ctrl *dsi_ctrl, struct dsi_cmd_des
 	dflags &= ~BIT(3);
 	cmd.msg.flags = dflags;
 	cmd.ctrl_flags = DSI_CTRL_CMD_FETCH_MEMORY;
-	rc = dsi_message_tx(dsi_ctrl, &cmd);
+	rc = dsi_message_tx(dsi_ctrl, &cmd, false);
 	if (rc)
 		DSI_CTRL_ERR(dsi_ctrl, "failed to send max return size packet, rc=%d\n",
 				rc);
@@ -1850,7 +1844,7 @@ static int dsi_message_rx(struct dsi_ctrl *dsi_ctrl, struct dsi_cmd_desc *cmd_de
 		/* clear RDBK_DATA registers before proceeding */
 		dsi_ctrl->hw.ops.clear_rdbk_register(&dsi_ctrl->hw);
 
-		rc = dsi_message_tx(dsi_ctrl, cmd_desc);
+		rc = dsi_message_tx(dsi_ctrl, cmd_desc, false);
 		if (rc) {
 			DSI_CTRL_ERR(dsi_ctrl, "Message transmission failed, rc=%d\n",
 					rc);
@@ -3655,6 +3649,7 @@ error_disable_gdsc:
  * dsi_ctrl_cmd_transfer() - Transfer commands on DSI link
  * @dsi_ctrl:             DSI controller handle.
  * @cmd:                  Command description to transfer on DSI link.
+ * @do_peripheral_flush:  Flag for sending this command with peripheral flush.
  *
  * Command transfer can be done only when command engine is enabled. The
  * transfer API will block until either the command transfer finishes or
@@ -3664,7 +3659,8 @@ error_disable_gdsc:
  *
  * Return: error code.
  */
-int dsi_ctrl_cmd_transfer(struct dsi_ctrl *dsi_ctrl, struct dsi_cmd_desc *cmd)
+int dsi_ctrl_cmd_transfer(struct dsi_ctrl *dsi_ctrl, struct dsi_cmd_desc *cmd,
+			  bool do_peripheral_flush)
 {
 	int rc = 0;
 
@@ -3681,7 +3677,7 @@ int dsi_ctrl_cmd_transfer(struct dsi_ctrl *dsi_ctrl, struct dsi_cmd_desc *cmd)
 			DSI_CTRL_ERR(dsi_ctrl, "read message failed read length, rc=%d\n",
 					rc);
 	} else {
-		rc = dsi_message_tx(dsi_ctrl, cmd);
+		rc = dsi_message_tx(dsi_ctrl, cmd, do_peripheral_flush);
 		if (rc)
 			DSI_CTRL_ERR(dsi_ctrl, "command msg transfer failed, rc = %d\n",
 					rc);
