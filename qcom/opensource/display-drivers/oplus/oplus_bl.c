@@ -17,15 +17,12 @@
 #include "dsi_iris_api.h"
 #endif
 
-#define AVALON_MAX_NOMAL_BRIGHTNESS 3268
-
 char oplus_global_hbm_flags = 0x0;
 static int enable_hbm_enter_dly_on_flags = 0;
 static int enable_hbm_exit_dly_on_flags = 0;
 extern u32 oplus_last_backlight;
 extern bool refresh_rate_change;
 extern const char *cmd_set_prop_map[];
-extern bool send_demura_after_hbm_off_flag;
 ktime_t aod_off_te_timestamp;
 ktime_t lhbm_off_te_timestamp;
 
@@ -50,12 +47,6 @@ int oplus_panel_parse_bl_config(struct dsi_panel *panel)
 	} else {
 		panel->bl_config.bl_normal_max_level = val;
 	}
-
-	/* avalon normal max backlight level is 3268, audi is 3238 */
-	if (is_project(24211) || is_project(24212)) {
-		panel->bl_config.bl_normal_max_level = AVALON_MAX_NOMAL_BRIGHTNESS;
-	}
-
 	LCD_INFO("[%s] bl_max_level=%d\n", panel->oplus_priv.vendor_name,
 			panel->bl_config.bl_max_level);
 
@@ -68,12 +59,6 @@ int oplus_panel_parse_bl_config(struct dsi_panel *panel)
 	} else {
 		panel->bl_config.brightness_normal_max_level = val;
 	}
-
-	/* avalon normal max backlight level is 3268, audi is 3238 */
-	if (is_project(24211) || is_project(24212)) {
-		panel->bl_config.brightness_normal_max_level = AVALON_MAX_NOMAL_BRIGHTNESS;
-	}
-
 	LCD_INFO("[%s] brightness_normal_max_level=%d\n",
 			panel->oplus_priv.vendor_name,
 			panel->bl_config.brightness_normal_max_level);
@@ -367,10 +352,6 @@ void oplus_panel_backlight_demura_dbv_switch(struct dsi_panel *panel, u32 bl_lvl
 	if (bl_lvl == 0 || bl_lvl == 1)
 		return;
 
-	if(!strcmp(panel->name, "AA577 P 3 A0020 dsc cmd mode panel")) {
-		return;
-	}
-
 	if (!strcmp(panel->name, "AA567 P 3 A0004 dsc cmd mode panel")) {
 		if ((bl_lvl >= 8) && (bl_lvl <= 1087)) {
 			panel->oplus_priv.bl_demura_mode = 0;
@@ -395,23 +376,6 @@ void oplus_panel_backlight_demura_dbv_switch(struct dsi_panel *panel, u32 bl_lvl
 		} else if (1088 <= bl_lvl) {
 			panel->oplus_priv.bl_demura_mode = 2;
 			bl_demura_mode = DSI_CMD_DEMURA_DBV_MODE2;
-		}
-	} else if (!strcmp(panel->name, "AC172 P 7 A0001 dsc cmd mode panel")) {
-		if ((bl_lvl >= 0x08) && (bl_lvl < 0x1F5)) {
-			panel->oplus_priv.bl_demura_mode = 0;
-			bl_demura_mode = DSI_CMD_DEMURA_DBV_MODE0;
-		} else if ((bl_lvl >= 0x1F6) && (bl_lvl < 0x3F1)) {
-			panel->oplus_priv.bl_demura_mode = 1;
-			bl_demura_mode = DSI_CMD_DEMURA_DBV_MODE1;
-		} else if ((bl_lvl >= 0x3F2) && (bl_lvl < 0x561)) {
-			panel->oplus_priv.bl_demura_mode = 2;
-			bl_demura_mode = DSI_CMD_DEMURA_DBV_MODE2;
-		} else if ((bl_lvl >= 0x562) && (bl_lvl < 0xDBA)) {
-			panel->oplus_priv.bl_demura_mode = 3;
-			bl_demura_mode = DSI_CMD_DEMURA_DBV_MODE3;
-		} else if (bl_lvl >= 0xDBB) {
-			panel->oplus_priv.bl_demura_mode = 4;
-			bl_demura_mode = DSI_CMD_DEMURA_DBV_MODE4;
 		}
 	} else {
 		if (bl_lvl <= 3515)
@@ -456,11 +420,8 @@ void oplus_panel_backlight_demura_dbv_switch(struct dsi_panel *panel, u32 bl_lvl
 			LCD_INFO("invaild format of cmd %s\n", cmd_set_prop_map[bl_demura_mode]);
 		}
 	}
-
-	if ((panel->oplus_priv.bl_demura_mode != bl_demura_last_mode || send_demura_after_hbm_off_flag) && (panel->power_mode == SDE_MODE_DPMS_ON)) {
+	if (panel->oplus_priv.bl_demura_mode != bl_demura_last_mode && panel->power_mode == SDE_MODE_DPMS_ON)
 		rc = dsi_panel_tx_cmd_set(panel, bl_demura_mode, false);
-		send_demura_after_hbm_off_flag = false;
-	}
 	if (rc) {
 		DSI_ERR("[%s] failed to send bl_demura_mode, rc=%d\n", panel->name, rc);
 		return;
@@ -494,13 +455,13 @@ int oplus_display_panel_set_demura2_offset(void)
 
 	display = get_main_display();
 	if (!display) {
-		DSI_ERR("failed to set demura2 offset, Invalid params\n");
+		DSI_ERR("[%s] failed to set demura2 offset, Invalid params\n", panel->name);
 		return -EINVAL;
 	}
 
 	panel = display->panel;
 	if (!panel) {
-		DSI_ERR("failed to set demura2 offset, Invalid params\n");
+		DSI_ERR("[%s] failed to set demura2 offset, Invalid params\n", panel->name);
 		return -EINVAL;
 	}
 

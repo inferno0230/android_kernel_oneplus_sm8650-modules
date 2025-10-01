@@ -19,14 +19,9 @@
 #include "sde_color_processing.h"
 #include "sde_encoder_phys.h"
 #include "sde_trace.h"
-
 #ifdef OPLUS_FEATURE_DISPLAY_ADFR
 #include "oplus_adfr.h"
 #endif /* OPLUS_FEATURE_DISPLAY_ADFR */
-
-#ifdef OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT
-#include "oplus_onscreenfingerprint.h"
-#endif /* OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT */
 
 bool refresh_rate_change = false;
 extern bool oplus_pwm_onepluse_switch;
@@ -34,12 +29,10 @@ extern int dc_apollo_enable;
 extern int oplus_dimlayer_hbm;
 extern unsigned int oplus_dsi_log_type;
 extern int oplus_debug_max_brightness;
-bool already_readid = false;
-struct panel_id panel_id;
+static bool already_readid = false;
+static struct panel_id panel_id;
 extern u32 bl_lvl;
 bool is_lhbm_panel = false;
-extern bool g_gamma_regs_read_done;
-
 int oplus_panel_cmd_print(struct dsi_panel *panel, enum dsi_cmd_set_type type)
 {
 	u32 count;
@@ -89,30 +82,9 @@ int oplus_panel_cmd_print(struct dsi_panel *panel, enum dsi_cmd_set_type type)
 	case DSI_CMD_HPWM_ADFR_MIN_FPS_12:
 	case DSI_CMD_HPWM_ADFR_MIN_FPS_13:
 	case DSI_CMD_HPWM_ADFR_MIN_FPS_14:
-	case DSI_CMD_BIGDC_ADFR_MIN_FPS_0:
-	case DSI_CMD_BIGDC_ADFR_MIN_FPS_1:
-	case DSI_CMD_BIGDC_ADFR_MIN_FPS_2:
-	case DSI_CMD_BIGDC_ADFR_MIN_FPS_3:
-	case DSI_CMD_BIGDC_ADFR_MIN_FPS_4:
-	case DSI_CMD_BIGDC_ADFR_MIN_FPS_5:
-	case DSI_CMD_BIGDC_ADFR_MIN_FPS_6:
-	case DSI_CMD_BIGDC_ADFR_MIN_FPS_7:
-	case DSI_CMD_BIGDC_ADFR_MIN_FPS_8:
-	case DSI_CMD_BIGDC_ADFR_MIN_FPS_9:
-	case DSI_CMD_BIGDC_ADFR_MIN_FPS_10:
-	case DSI_CMD_BIGDC_ADFR_MIN_FPS_11:
-	case DSI_CMD_BIGDC_ADFR_MIN_FPS_12:
-	case DSI_CMD_BIGDC_ADFR_MIN_FPS_13:
-	case DSI_CMD_BIGDC_ADFR_MIN_FPS_14:
 	case DSI_CMD_ADFR_FAKEFRAME:
-		if (panel->cur_mode->priv_info->oplus_adfr_idle_min_fps_log) {
-			ADFR_DEBUG("[%s] dsi_cmd: %s, count=%d\n", panel->oplus_priv.vendor_name,
-					cmd_set_prop_map[type], count);
-			panel->cur_mode->priv_info->oplus_adfr_idle_min_fps_log = false;
-		} else {
-			ADFR_INFO("[%s] dsi_cmd: %s, count=%d\n", panel->oplus_priv.vendor_name,
-					cmd_set_prop_map[type], count);
-		}
+		ADFR_INFO("[%s] dsi_cmd: %s, count=%d\n", panel->oplus_priv.vendor_name,
+				cmd_set_prop_map[type], count);
 		break;
 #endif /* OPLUS_FEATURE_DISPLAY_ADFR */
 	default:
@@ -153,85 +125,42 @@ int oplus_panel_cmd_switch(struct dsi_panel *panel, enum dsi_cmd_set_type *type)
 		}
 	}
 
-	if (panel->pwm_params.pwm_switch_support_dc
-		&& !panel->pwm_params.pwm_switch_support_extend_mode) {
-		if(oplus_panel_pwm_onepulse_is_enabled(panel)) {
+	/* switch the command when pwm onepulse is enabled */
+	if (oplus_panel_pwm_onepulse_is_enabled(panel)&&
+	  		!panel->pwm_params.directional_onepulse_switch) {
+		switch (*type) {
+		case DSI_CMD_PWM_SWITCH_HIGH:
+			if (!strcmp(panel->name, "AA545 P 3 A0005 dsc cmd mode panel") ||
+					!strcmp(panel->name, "AC090 P 3 A0005 dsc cmd mode panel")) {
+				oplus_pwm_onepluse_switch = true;
+				return 0;
+			}
+			*type = DSI_CMD_PWM_SWITCH_ONEPULSE;
+			break;
+		case DSI_CMD_PWM_SWITCH_LOW:
+			*type = DSI_CMD_PWM_SWITCH_ONEPULSE_LOW;
+			break;
+		case DSI_CMD_SET_TIMING_SWITCH:
+			if (panel->pwm_params.oplus_pwm_switch_state == PWM_SWITCH_DC_STATE)
+				*type = DSI_CMD_TIMMING_PWM_SWITCH_ONEPULSE;
+			break;
+		case DSI_CMD_HBM_ON:
+			*type = DSI_CMD_HBM_ON_ONEPULSE;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (panel->pwm_params.directional_onepulse_switch) {
+		if(oplus_panel_pwm_onepulse_is_used(panel)) {
 			switch (*type) {
-			case DSI_CMD_SET_TIMING_SWITCH:
+			case DSI_CMD_SET_TIMING_SWITCH: {
 				*type = DSI_CMD_TIMMING_PWM_SWITCH_ONEPULSE;
 				break;
-			case DSI_CMD_SET_NOLP:
-				*type = DSI_CMD_SET_NOLP_ONEPULSE;
-				break;
+			}
 			default:
 				break;
-			}
-		}
-	} else if (panel->pwm_params.pwm_switch_support_extend_mode) {
-		if (*type == DSI_CMD_SET_OFF) {
-			panel->pwm_params.oplus_aod_mutual_fps_flag = false;
-		}
-		if (panel->pwm_params.oplus_dynamic_pulse == ONE_ONE_PULSE
-			|| (panel->pwm_params.oplus_dynamic_pulse == ONE_EIGHTEEN_PULSE
-			&& panel->bl_config.bl_level > 1162)) {
-			switch (*type) {
-			case DSI_CMD_SET_TIMING_SWITCH:
-				*type = DSI_CMD_TIMMING_PWM_SWITCH_ONEPULSE;
-				break;
-			case DSI_CMD_SET_NOLP:
-				panel->pwm_params.oplus_aod_mutual_fps_flag = true;
-				panel->pwm_params.aod_off_timestamp = ktime_get();
-				LCD_DEBUG("aod_off_timestamp:%lu\n", ktime_to_ms(panel->pwm_params.aod_off_timestamp));
-				*type = DSI_CMD_SET_NOLP_ONEPULSE;
-				break;
-			case DSI_CMD_SET_OFF:
-				panel->pwm_params.oplus_aod_mutual_fps_flag = false;
-				break;
-			default:
-				break;
-			}
-		}
-		panel->pwm_params.oplus_pulse_mutual_fps_flag--;
-		if (panel->pwm_params.oplus_pulse_mutual_fps_flag < PULSE_MUTUAL_FPS_LOWER_LIMIT) {
-			panel->pwm_params.oplus_pulse_mutual_fps_flag = 0;
-		}
-	} else {
-		/* switch the command when pwm onepulse is enabled */
-		if (oplus_panel_pwm_onepulse_is_enabled(panel)&&
-		  		!panel->pwm_params.directional_onepulse_switch) {
-			switch (*type) {
-			case DSI_CMD_PWM_SWITCH_HIGH:
-				if (!strcmp(panel->name, "AA545 P 3 A0005 dsc cmd mode panel") ||
-						!strcmp(panel->name, "AC090 P 3 A0005 dsc cmd mode panel")) {
-					oplus_pwm_onepluse_switch = true;
-					return 0;
-				}
-				*type = DSI_CMD_PWM_SWITCH_ONEPULSE;
-				break;
-			case DSI_CMD_PWM_SWITCH_LOW:
-				*type = DSI_CMD_PWM_SWITCH_ONEPULSE_LOW;
-				break;
-			case DSI_CMD_SET_TIMING_SWITCH:
-				if (panel->pwm_params.oplus_pwm_switch_state == PWM_SWITCH_DC_STATE)
-					*type = DSI_CMD_TIMMING_PWM_SWITCH_ONEPULSE;
-				break;
-			case DSI_CMD_HBM_ON:
-				*type = DSI_CMD_HBM_ON_ONEPULSE;
-				break;
-			default:
-				break;
-			}
-		}
-		if (panel->pwm_params.directional_onepulse_switch) {
-			if(oplus_panel_pwm_onepulse_is_used(panel)) {
-				switch (*type) {
-				case DSI_CMD_SET_TIMING_SWITCH: {
-					*type = DSI_CMD_TIMMING_PWM_SWITCH_ONEPULSE;
-					break;
-				}
-				default:
-					break;
-				}
 			}
 		}
 	}
@@ -239,27 +168,6 @@ int oplus_panel_cmd_switch(struct dsi_panel *panel, enum dsi_cmd_set_type *type)
 	if (*type == DSI_CMD_SET_ON && oplus_panel_id_compatibility(panel)) {
 		*type = DSI_CMD_SET_COMPATIBILITY_ON;
 	}
-
-#ifdef OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT
-	if (oplus_ofp_is_supported()) {
-		if (oplus_ofp_need_to_do_aod_off_compensation()) {
-			switch (*type) {
-			case DSI_CMD_SET_NOLP:
-				if (panel->cur_mode->priv_info->cmd_sets[DSI_CMD_AOD_OFF_COMPENSATION].count) {
-					*type = DSI_CMD_AOD_OFF_COMPENSATION;
-				}
-				break;
-			case DSI_CMD_SET_NOLP_ONEPULSE:
-				if (panel->cur_mode->priv_info->cmd_sets[DSI_CMD_AOD_OFF_COMPENSATION_ONEPULSE].count) {
-					*type = DSI_CMD_AOD_OFF_COMPENSATION_ONEPULSE;
-				}
-				break;
-			default:
-				break;
-			}
-		}
-	}
-#endif /* OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT */
 
 	count = panel->cur_mode->priv_info->cmd_sets[*type].count;
 	if (count == 0) {
@@ -425,9 +333,6 @@ int oplus_panel_id_compatibility_init(struct dsi_display *display)
 			already_readid = true;
 		}
 	}
-	if (!strcmp(panel->name, "AC172 P 3 A0023 dsc cmd mode panel")) {
-		return rc;
-	}
 	if (already_readid && panel_id.DA == 0x3E) {
 		if (panel_id.DB == 0x93) {
 			/* init code common on 93 vrr*/
@@ -467,14 +372,12 @@ int oplus_panel_gpio_request(struct dsi_panel *panel)
 {
 	int rc = 0;
 	struct dsi_panel_reset_config *r_config;
-	struct drm_panel_esd_config *esd_config;
 	if (!panel) {
 		LCD_ERR("Oplus Features config No panel device\n");
 		return -ENODEV;
 	}
 
 	r_config = &panel->reset_config;
-	esd_config = &panel->esd_config;
 
 	if (gpio_is_valid(r_config->panel_vout_gpio)) {
 		rc = gpio_request(r_config->panel_vout_gpio, "panel_vout_gpio");
@@ -493,36 +396,23 @@ int oplus_panel_gpio_request(struct dsi_panel *panel)
 		}
 	}
 
-	if (gpio_is_valid(esd_config->mipi_err_flag_gpio)) {
-		rc = gpio_request(esd_config->mipi_err_flag_gpio , "mipi_err_flag_gpio");
-		if (rc) {
-			LCD_ERR("request for mipi_err_irp_gpio failed, rc=%d\n", rc);
-			if (gpio_is_valid(esd_config->mipi_err_flag_gpio))
-				gpio_free(esd_config->mipi_err_flag_gpio);
-		}
-	}
-
 	return rc;
 }
 
 int oplus_panel_gpio_release(struct dsi_panel *panel)
 {
 	struct dsi_panel_reset_config *r_config;
-	struct drm_panel_esd_config *esd_config;
 	if (!panel) {
 		LCD_ERR("Oplus Features config No panel device\n");
 		return -ENODEV;
 	}
 
 	r_config = &panel->reset_config;
-	esd_config = &panel->esd_config;
 
 	if (gpio_is_valid(r_config->panel_vout_gpio))
 		gpio_free(r_config->panel_vout_gpio);
 	if (gpio_is_valid(r_config->panel_vddr_aod_en_gpio))
 		gpio_free(r_config->panel_vddr_aod_en_gpio);
-	if (gpio_is_valid(esd_config->mipi_err_flag_gpio))
-		gpio_free(esd_config->mipi_err_flag_gpio);
 
 #ifdef OPLUS_FEATURE_DISPLAY_ADFR
 	oplus_adfr_gpio_release(panel);
@@ -569,9 +459,7 @@ int oplus_panel_gpio_on(struct dsi_panel *panel)
 		|| !strcmp(panel->oplus_priv.vendor_name , "AB714")
 		|| !strcmp(panel->oplus_priv.vendor_name , "AB715")
 		|| !strcmp(panel->oplus_priv.vendor_name , "A0004")
-		|| !strcmp(panel->oplus_priv.vendor_name , "A0020")
-		|| !strcmp(panel->oplus_priv.vendor_name , "AB781")
-		|| !strcmp(panel->oplus_priv.vendor_name , "AC223"))
+		|| !strcmp(panel->oplus_priv.vendor_name , "AB781"))
 		return 0;
 
 	r_config = &panel->reset_config;
@@ -607,9 +495,7 @@ int oplus_panel_gpio_off(struct dsi_panel *panel)
 		|| !strcmp(panel->oplus_priv.vendor_name , "AB714")
 		|| !strcmp(panel->oplus_priv.vendor_name , "AB715")
 		|| !strcmp(panel->oplus_priv.vendor_name , "A0004")
-		|| !strcmp(panel->oplus_priv.vendor_name , "A0020")
-		|| !strcmp(panel->oplus_priv.vendor_name , "AB781")
-		|| !strcmp(panel->oplus_priv.vendor_name , "AC223"))
+		|| !strcmp(panel->oplus_priv.vendor_name , "AB781"))
 		return 0;
 
 	r_config = &panel->reset_config;
@@ -637,9 +523,7 @@ int oplus_panel_vddr_on(struct dsi_display *display, const char *vreg_name)
 		|| !strcmp(display->panel->oplus_priv.vendor_name , "AB714")
 		|| !strcmp(display->panel->oplus_priv.vendor_name , "AB715")
 		|| !strcmp(display->panel->oplus_priv.vendor_name , "A0004")
-		|| !strcmp(display->panel->oplus_priv.vendor_name , "A0020")
-		|| !strcmp(display->panel->oplus_priv.vendor_name , "AB781")
-		|| !strcmp(display->panel->oplus_priv.vendor_name , "AC223"))
+		|| !strcmp(display->panel->oplus_priv.vendor_name , "AB781"))
 		&& !strcmp(vreg_name, "vddio")) {
 		if (gpio_is_valid(display->panel->reset_config.panel_vout_gpio)) {
 			rc = gpio_direction_output(display->panel->reset_config.panel_vout_gpio, 1);
@@ -668,9 +552,7 @@ int oplus_panel_vddr_off(struct dsi_display *display, const char *vreg_name)
 		|| !strcmp(display->panel->oplus_priv.vendor_name , "AB714")
 		|| !strcmp(display->panel->oplus_priv.vendor_name , "AB715")
 		|| !strcmp(display->panel->oplus_priv.vendor_name , "A0004")
-		|| !strcmp(display->panel->oplus_priv.vendor_name , "A0020")
-		|| !strcmp(display->panel->oplus_priv.vendor_name , "AB781")
-		|| !strcmp(display->panel->oplus_priv.vendor_name , "AC223"))
+		|| !strcmp(display->panel->oplus_priv.vendor_name , "AB781"))
 		&& !strcmp(vreg_name, "vci")) {
 		if (gpio_is_valid(display->panel->reset_config.panel_vout_gpio)) {
 			gpio_set_value(display->panel->reset_config.panel_vout_gpio, 0);
@@ -685,14 +567,12 @@ int oplus_panel_gpio_parse(struct dsi_panel *panel)
 {
 	struct dsi_parser_utils *utils;
 	struct dsi_panel_reset_config *r_config;
-	struct drm_panel_esd_config *esd_config;
 	if (!panel) {
 		LCD_ERR("Oplus Features config No panel device\n");
 		return -ENODEV;
 	}
 	utils = &panel->utils;
 	r_config = &panel->reset_config;
-	esd_config = &panel->esd_config;
 
 	panel->reset_config.panel_vout_gpio = utils->get_named_gpio(utils->data,
 								"qcom,platform-panel-vout-gpio", 0);
@@ -705,12 +585,6 @@ int oplus_panel_gpio_parse(struct dsi_panel *panel)
 
 	if (!gpio_is_valid(panel->reset_config.panel_vddr_aod_en_gpio)) {
 		LCD_ERR("[%s] failed get panel_vddr_aod_en_gpio\n", panel->oplus_priv.vendor_name);
-	}
-
-	esd_config->mipi_err_flag_gpio = utils->get_named_gpio(utils->data,
-								"oplus,esd_mipi_err_gpio", 0);
-	if (!gpio_is_valid(esd_config->mipi_err_flag_gpio)) {
-		LCD_ERR("[%s] failed get oplus,esd_mipi_err_gpio\n", panel->oplus_priv.vendor_name);
 	}
 
 	return 0;
@@ -1115,21 +989,12 @@ int oplus_panel_cmdq_pack_handle(void *dsi_panel, enum dsi_cmd_set_type type, bo
 
 	if (before_cmd) {
 		if (panel->oplus_priv.cmdq_pack_state) {
-			/*2 cmdqs in 1 frame */
 			LCD_INFO("[%s] dsi_cmd: %s block to the next frame\n",
 					panel->oplus_priv.vendor_name,
 					cmd_set_prop_map[type]);
 			oplus_sde_early_wakeup(panel);
 			oplus_wait_for_vsync(panel);
-			if (panel->cur_mode->timing.refresh_rate == 60 || panel->cur_mode->timing.refresh_rate == 90
-			|| (panel->cur_mode->timing.refresh_rate == 120 && panel->last_refresh_rate == 90)) {
-				oplus_need_to_sync_te(panel);
-			} else if (panel->cur_mode->timing.refresh_rate == 120) {
-				usleep_range(1000, 1020);
-			}
-		} else {
-			if (strcmp(panel->oplus_priv.vendor_name , "AB781")) {
-				/* force cmdq sending during half-past frame */
+			if (panel->cur_mode->timing.refresh_rate == 60) {
 				oplus_need_to_sync_te(panel);
 			}
 		}
@@ -1302,59 +1167,3 @@ int oplus_set_osc_status(struct drm_encoder *drm_enc) {
 	return rc;
 }
 
-int oplus_panel_cmd_reg_replace_specific_row(struct dsi_panel *panel, struct dsi_display_mode *mode,
-		enum dsi_cmd_set_type type, u8 *replace_reg, size_t replace_reg_len, u32 row)
-{
-	int rc = 0;
-	struct dsi_cmd_desc *cmds = NULL;
-	size_t tx_len = 0;
-	u8 *tx_buf = NULL;
-	u32 count = 0;
-	u8 *payload = NULL;
-	u32 size = 0;
-	u32 index = 0;
-
-	if(!panel) {
-		DSI_ERR("invalid display panel\n");
-		return -ENODEV;
-	}
-	if(!replace_reg) {
-		DSI_ERR("invalid cmd reg\n");
-		return -ENODEV;
-	}
-
-	if (!mode) {
-		LCD_INFO("mode is null, use panel cur_mode\n");
-		mode = panel->cur_mode;
-	}
-	cmds = mode->priv_info->cmd_sets[type].cmds;
-	count = mode->priv_info->cmd_sets[type].count;
-
-	if (row > count) {
-		DSI_ERR("Exceeding the number of rows of the command\n");
-		return -EFAULT;
-	}
-	index = row - 1;
-
-	tx_len = cmds[index].msg.tx_len;
-	tx_buf = (u8 *)cmds[index].msg.tx_buf;
-	if ((tx_len - 1) != replace_reg_len) {
-		tx_len = replace_reg_len + 1;
-		size = tx_len * sizeof(u8);
-		payload = kzalloc(size, GFP_KERNEL);
-		if (!payload) {
-			rc = -ENOMEM;
-			return rc;
-		}
-		payload[0] = tx_buf[0];
-		if (tx_buf) {
-			kfree(tx_buf);
-		}
-		tx_buf = payload;
-		cmds[index].msg.tx_len = tx_len;
-	}
-	tx_buf++;
-	memcpy(tx_buf, replace_reg, replace_reg_len);
-
-	return 0;
-}

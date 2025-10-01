@@ -16,7 +16,6 @@
 #include "sde_hw_util.h"
 #include "sde_kms.h"
 
-
 #if defined(CONFIG_PXLW_IRIS) || defined(CONFIG_PXLW_SOFT_IRIS)
 #include "dsi_iris_api.h"
 #endif

@@ -1239,15 +1239,11 @@ int iris_configure_get_i7(u32 display, u32 type, u32 count, u32 *values)
 		} else {
 			*values = 0;
 		}
-		if(iris_ioctl_i2c_write(0xf191fff0, 1))
-			IRIS_LOGI("clear INTCLR error");
 		mutex_unlock(&pcfg->panel->panel_lock);
 		break;
 	case IRIS_GET_MEMC_REG_STATUS:
 		mutex_lock(&pcfg->panel->panel_lock);
 		*values = 0;
-		if(iris_ioctl_i2c_write(0xf191fff0, 1))
-			IRIS_LOGI("clear INTCLR error");
 		if (atomic_read(&pcfg->iris_esd_flag) == 0) {
 
 			u8 i = 0;

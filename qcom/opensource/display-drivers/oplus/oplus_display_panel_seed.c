@@ -99,33 +99,6 @@ int dsi_panel_loading_effect_mode_unlock(struct dsi_panel *panel, int mode)
 	case PANEL_LOADING_EFFECT_OFF:
 		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_EFFECT_OFF, false);
 		break;
-	case PANEL_UIR_ON_LOADING_EFFECT_MODE1:
-		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_UIR_ON_LOADING_EFFECT_MODE1, false);
-		break;
-	case PANEL_UIR_ON_LOADING_EFFECT_MODE2:
-		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_UIR_ON_LOADING_EFFECT_MODE2, false);
-		break;
-	case PANEL_UIR_ON_LOADING_EFFECT_MODE3:
-		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_UIR_ON_LOADING_EFFECT_MODE3, false);
-		break;
-	case PANEL_UIR_OFF_LOADING_EFFECT_MODE1:
-		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_UIR_OFF_LOADING_EFFECT_MODE1, false);
-		break;
-	case PANEL_UIR_OFF_LOADING_EFFECT_MODE2:
-		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_UIR_OFF_LOADING_EFFECT_MODE2, false);
-		break;
-	case PANEL_UIR_OFF_LOADING_EFFECT_MODE3:
-		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_UIR_OFF_LOADING_EFFECT_MODE3, false);
-		break;
-	case PANEL_UIR_LOADING_EFFECT_MODE1:
-		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_UIR_LOADING_EFFECT_MODE1, false);
-		break;
-	case PANEL_UIR_LOADING_EFFECT_MODE2:
-		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_UIR_LOADING_EFFECT_MODE2, false);
-		break;
-	case PANEL_UIR_LOADING_EFFECT_MODE3:
-		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_UIR_LOADING_EFFECT_MODE3, false);
-		break;
 	default:
 		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_EFFECT_OFF, false);
 		LCD_ERR("[%s] Invalid loading effect mode %d\n",
@@ -161,6 +134,11 @@ int dsi_display_seed_mode_lock(struct dsi_display *display, int mode)
 	if (!display || !display->panel) {
 		LCD_ERR("Invalid params\n");
 		return -EINVAL;
+	}
+
+	if (display->config.panel_mode == DSI_OP_VIDEO_MODE) {
+		LCD_WARN("seed is not support in vdo mode\n");
+		return rc;
 	}
 
 	mutex_lock(&display->display_lock);

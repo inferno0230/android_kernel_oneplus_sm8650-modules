@@ -29,6 +29,7 @@
 #include "sde_dbg.h"
 
 #ifdef OPLUS_FEATURE_DISPLAY
+#include <soc/oplus/system/oplus_mm_kevent_fb.h>
 #include "../oplus/oplus_display_interface.h"
 #endif /* OPLUS_FEATURE_DISPLAY */
 
@@ -56,21 +57,14 @@
 		c ? c->name : "inv", ##__VA_ARGS__)
 
 #ifdef OPLUS_FEATURE_DISPLAY
-#ifdef OPLUS_TRACKPOINT_REPORT
-#include <soc/oplus/oplus_trackpoint_report.h>
 #define DSI_CTRL_MM_ERR(c, fmt, ...) \
 	do { \
 		DRM_DEV_ERROR(NULL, "[msm-dsi-error]: %s: "\
 				fmt, c ? c->name : "inv", ##__VA_ARGS__); \
-		display_exception_trackpoint_report(fmt, ##__VA_ARGS__); \
+		mm_fb_display_kevent_named(MM_FB_KEY_RATELIMIT_1H, fmt, ##__VA_ARGS__); \
 	} while(0)
-#else
-#define DSI_CTRL_MM_ERR(c, fmt, ...) \
-	do { \
-		DRM_DEV_ERROR(NULL, "[msm-dsi-error]: %s: "\
-				fmt, c ? c->name : "inv", ##__VA_ARGS__); \
-	} while(0)
-#endif /* OPLUS_TRACKPOINT_REPORT */
+
+extern bool c_do_peripheral_flush;
 #endif /* OPLUS_FEATURE_DISPLAY */
 
 struct dsi_ctrl_list_item {
@@ -1471,12 +1465,12 @@ static void dsi_kickoff_msg_tx(struct dsi_ctrl *dsi_ctrl,
 	 * In video mode panel, if the DMA is triggered very close to
 	 * the beginning of the active window and the DMA transfer
 	 * happens in the last line of VBP, then the HW state will
-	 * stay in 'wait' and return to 'idle' in the first line of VFP.
+	 * stay in ‘wait’ and return to ‘idle’ in the first line of VFP.
 	 * But somewhere in the middle of the active window, if SW
 	 * disables DSI command mode engine while the HW is still
 	 * waiting and re-enable after timing engine is OFF. So the
-	 * HW never 'sees' another vblank line and hence it gets
-	 * stuck in the 'wait' state.
+	 * HW never ‘sees’ another vblank line and hence it gets
+	 * stuck in the ‘wait’ state.
 	 */
 	if ((flags & DSI_CTRL_CMD_CUSTOM_DMA_SCHED) ||
 		(dsi_ctrl->host_config.panel_mode == DSI_OP_VIDEO_MODE))
@@ -1662,17 +1656,16 @@ static int dsi_message_tx(struct dsi_ctrl *dsi_ctrl, struct dsi_cmd_desc *cmd_de
 
 		cmdbuf = (u8 *)(dsi_ctrl->vaddr);
 
+		for (cnt = 0; cnt < length; cnt++)
+			cmdbuf[dsi_ctrl->cmd_len + cnt] = buffer[cnt];
+
+		dsi_ctrl->cmd_len += length;
 #if defined(CONFIG_PXLW_IRIS)
 		if (!iris_is_chip_supported())
 			msm_gem_sync(dsi_ctrl->tx_cmd_buf);
 #else
 		msm_gem_sync(dsi_ctrl->tx_cmd_buf);
 #endif
-		for (cnt = 0; cnt < length; cnt++)
-			cmdbuf[dsi_ctrl->cmd_len + cnt] = buffer[cnt];
-
-		dsi_ctrl->cmd_len += length;
-		msm_gem_sync(dsi_ctrl->tx_cmd_buf);
 
 		if (*flags & DSI_CTRL_CMD_LAST_COMMAND) {
 			cmd_mem.length = dsi_ctrl->cmd_len;

@@ -25,7 +25,6 @@
 #define PANEL_TX_MAX_BUF 512
 #define FFC_MODE_MAX_COUNT 4
 #define FFC_DELAY_MAX_FRAMES 10
-#define FILE_DESTROY 9
 
 #define to_dsi_display(x) container_of(x, struct dsi_display, host)
 
@@ -143,7 +142,5 @@ int oplus_display_panel_set_hbm_max(void *data);
 int oplus_display_panel_get_hbm_max(void *data);
 void oplus_panel_switch_to_sync_te(struct dsi_panel *panel);
 void oplus_set_pwm_switch_cmd_te_flag(struct sde_connector *c_conn);
-int oplus_display_set_shutdown_flag(void *buf);
-int oplus_display_panel_set_dc_compensate(void *data);
 #endif /* _OPLUS_DISPLAY_PANEL_COMMON_H_ */
 

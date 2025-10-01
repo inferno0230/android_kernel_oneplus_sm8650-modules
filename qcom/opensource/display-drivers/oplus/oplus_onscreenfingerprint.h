@@ -54,21 +54,6 @@ enum oplus_ofp_ui_status {
 	OPLUS_OFP_UI_READY = 1,
 };
 
-enum oplus_ofp_longrui_aod_config {					/* hardware capability */
-	OPLUS_OFP_LONGRUI_AOD_IS_NOT_CONFIG = 0,
-	OPLUS_OFP_NORMAL_TO_AOD_CONFIG = BIT(0),
-	OPLUS_OFP_A_MIRROR_TO_THE_END_AOD_CONFIG = BIT(1),
-	OPLUS_OFP_FULL_SCREEN_AOD_CONFIG = BIT(2),
-};
-
-enum oplus_ofp_longrui_aod_mode {					/* system setting */
-	OPLUS_OFP_NORMAL_AOD_OFF = 0,
-	OPLUS_OFP_AOD_ON = BIT(0),
-	OPLUS_OFP_A_MIRROR_TO_THE_END_AOD_MODE = BIT(1),
-	OPLUS_OFP_FULL_SCREEN_AOD_MODE = BIT(2),
-	OPLUS_OFP_INSPIRATIONAL_PHOTO_FRAME = BIT(3),
-};
-
 /* remember to initialize params */
 struct oplus_ofp_params {
 	unsigned int fp_type;							/*
@@ -109,23 +94,11 @@ struct oplus_ofp_params {
 	bool need_to_wait_data_before_aod_on;			/* indicates whether display on cmd(29h) needs to be sent after image data write before aod on or not */
 	bool wait_data_before_aod_on;					/* indicates whether to start waiting image data before aod on or not */
 	bool aod_unlocking;								/* indicates whether the fingerprint unlocking is in aod state or not */
-	bool need_to_sync_data_in_aod_on;				/* indicates whether need to do some frames delay in aod on or not  */
 	unsigned int aod_off_hbm_on_delay;				/* indicates that how many frames need to wait to separate aod off cmds and hbm on cmds */
 	ktime_t aod_off_cmd_timestamp;					/* record aod off cmds timestamp for aod off hbm on delay judgment */
 	unsigned int aod_light_mode;					/* aod brightness setting, 0:50nit, 1:10nit */
 	bool ultra_low_power_aod_state;					/* indicates whether panel is ultra low power aod state or not */
-	bool demura_reset_after_hbm_off;				/* indicates whether the current hbm status sends demura */
 	unsigned int ultra_low_power_aod_mode;			/* indicates whether ultra low power aod mode needs to be entered or not */
-	unsigned int longrui_aod_config;				/*
-													 bit(0):normal to aod can be supported by panel
-													 bit(1):black frames of aod on/off can be removed by panel
-													 bit(2):full screen aod can be supported by panel
-													*/
-	unsigned int longrui_aod_mode;					/*
-													 bit(0):0:aod off 1:aod on
-													 bit(1):a mirror to the end aod mode is enabled
-													 bit(2):full screen aod mode is enabled
-													*/
 	struct workqueue_struct *aod_display_on_set_wq;	/* a workqueue used to send display on(29) cmd after image data write before aod on */
 	struct work_struct aod_display_on_set_work;		/* a work struct used to send display on(29) cmd after image data write before aod on */
 	struct workqueue_struct *aod_off_set_wq;		/* a workqueue used to send aod off cmds to speed up aod unlocking */
@@ -195,7 +168,6 @@ bool oplus_ofp_optical_new_solution_is_enabled(void);
 bool oplus_ofp_local_hbm_is_enabled(void);
 bool oplus_ofp_ultrasonic_is_enabled(void);
 bool oplus_ofp_video_mode_aod_fod_is_enabled(void);
-bool oplus_ofp_need_to_do_aod_off_compensation(void);
 bool oplus_ofp_get_hbm_state(void);
 int oplus_ofp_property_update(void *sde_connector, void *sde_connector_state, int prop_id, uint64_t prop_val);
 
@@ -226,10 +198,8 @@ int oplus_ofp_video_mode_aod_handle(void *dsi_display, void *dsi_display_mode);
 void oplus_ofp_aod_off_set_work_handler(struct work_struct *work_item);
 int oplus_ofp_touchpanel_event_notifier_call(struct notifier_block *nb, unsigned long action, void *data);
 int oplus_ofp_aod_off_hbm_on_delay_check(void *sde_encoder_phys);
-int oplus_ofp_aod_off_cmdq_delay_check(void *dsi_panel);
 int oplus_ofp_aod_off_backlight_recovery(void *sde_encoder_virt);
 int oplus_ofp_ultra_low_power_aod_update(void *sde_encoder_virt);
-bool oplus_ofp_get_aod_state(void);
 
 /* -------------------- node -------------------- */
 /* fp_type */
@@ -277,13 +247,6 @@ int oplus_ofp_get_ultra_low_power_aod_mode(void *buf);
 ssize_t oplus_ofp_set_ultra_low_power_aod_mode_attr(struct kobject *obj,
 	struct kobj_attribute *attr, const char *buf, size_t count);
 ssize_t oplus_ofp_get_ultra_low_power_aod_mode_attr(struct kobject *obj,
-	struct kobj_attribute *attr, char *buf);
-/* longrui_aod */
-int oplus_ofp_set_longrui_aod_mode(void *buf);
-int oplus_ofp_get_longrui_aod_config(void *buf);
-ssize_t oplus_ofp_set_longrui_aod_mode_attr(struct kobject *obj,
-	struct kobj_attribute *attr, const char *buf, size_t count);
-ssize_t oplus_ofp_get_longrui_aod_config_attr(struct kobject *obj,
 	struct kobj_attribute *attr, char *buf);
 
 #endif /*_OPLUS_ONSCREENFINGERPRINT_H_*/

@@ -828,13 +828,6 @@ void sde_encoder_post_kickoff_update_panel_level(struct drm_connector *connector
  * @drm_enc:    Pointer to drm encoder structure
  */
 void sde_encoder_update_panel_level(struct drm_connector *connector,  struct drm_encoder *drm_enc);
-
-/**
- * sde_encoder_is_disabled - encoder is disabled
- * @drm_enc:    Pointer to drm encoder structure
- * @Return:     bool.
- */
-bool sde_encoder_is_disabled(struct drm_encoder *drm_enc);
 #endif /* OPLUS_FEATURE_DISPLAY */
 /**
  * sde_encoder_get_hw_ctl - gets hw ctl from the connector
@@ -851,14 +844,6 @@ struct sde_hw_ctl *sde_encoder_get_hw_ctl(struct sde_connector *c_conn);
 u32 sde_encoder_get_programmed_fetch_time(struct drm_encoder *encoder);
 
 void sde_encoder_add_data_to_minidump_va(struct drm_encoder *drm_enc);
-#ifndef OPLUS_FEATURE_DISPLAY
-/**
- * sde_encoder_is_disabled - encoder is disabled
- * @drm_enc:    Pointer to drm encoder structure
- * @Return:     bool.
- */
-bool sde_encoder_is_disabled(struct drm_encoder *drm_enc);
-#endif /* OPLUS_FEATURE_DISPLAY */
 
 /**
  * sde_encoder_misr_sign_event_notify - collect MISR, check with previous value
@@ -872,6 +857,12 @@ void sde_encoder_misr_sign_event_notify(struct drm_encoder *drm_enc);
  * @drm_enc: pointer to drm encoder
  */
 int sde_encoder_handle_dma_fence_out_of_order(struct drm_encoder *drm_enc);
+
+/**
+ * sde_encoder_update_periph_flush - update peripheral flush event
+ * @drm_enc: pointer to drm encoder
+ */
+int sde_encoder_update_periph_flush(struct drm_encoder *drm_enc);
 
 /**
  * sde_encoder_register_misr_event - register or deregister MISR event

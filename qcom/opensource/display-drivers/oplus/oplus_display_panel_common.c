@@ -15,7 +15,6 @@
 #include "oplus_display_private_api.h"
 #include "oplus_display_interface.h"
 #include "sde_trace.h"
-#include "oplus_display_high_frequency_pwm.h"
 
 #if defined(CONFIG_PXLW_IRIS)
 #include "dsi_iris_loop_back.h"
@@ -31,7 +30,6 @@ int oplus_dither_enable = 0;
 int oplus_dre_status = 0;
 int oplus_cabc_status = OPLUS_DISPLAY_CABC_UI;
 extern int lcd_closebl_flag;
-extern int shutdown_flag;
 extern int oplus_display_audio_ready;
 char oplus_rx_reg[PANEL_TX_MAX_BUF] = {0x0};
 char oplus_rx_len = 0;
@@ -39,20 +37,14 @@ extern int spr_mode;
 extern int dynamic_osc_clock;
 extern int oplus_hw_partial_round;
 int mca_mode = 1;
-int dcc_flags = 0;
 bool apollo_backlight_enable = false;
 extern int dither_enable;
-u32 g_oplus_clk_vreg_ctrl_value = 0;
-EXPORT_SYMBOL(g_oplus_clk_vreg_ctrl_value);
-bool g_oplus_clk_vreg_ctrl_config = false;
-EXPORT_SYMBOL(g_oplus_clk_vreg_ctrl_config);
 bool g_oplus_vreg_ctrl_config = false;
 EXPORT_SYMBOL(g_oplus_vreg_ctrl_config);
 bool oplus_enhance_mipi_strength = false;
 EXPORT_SYMBOL(oplus_enhance_mipi_strength);
 EXPORT_SYMBOL(oplus_debug_max_brightness);
 EXPORT_SYMBOL(oplus_dither_enable);
-EXPORT_SYMBOL(dcc_flags);
 
 extern int dsi_display_read_panel_reg(struct dsi_display *display, u8 cmd,
 		void *data, size_t len);
@@ -1333,17 +1325,14 @@ int oplus_display_panel_get_cabc_status(void *buf)
 	}
 	panel = display->panel;
 
-	mutex_lock(&display->display_lock);
 	mutex_lock(&panel->panel_lock);
-
 	if(panel->oplus_priv.cabc_enabled) {
 		*cabc_status = oplus_cabc_status;
 	} else {
 		*cabc_status = OPLUS_DISPLAY_CABC_OFF;
 	}
-
 	mutex_unlock(&panel->panel_lock);
-	mutex_unlock(&display->display_lock);
+
 	LCD_INFO("Get cabc status: %d\n", *cabc_status);
 
 	return rc;
@@ -1381,17 +1370,19 @@ int oplus_display_panel_set_cabc_status(void *buf)
 		rc = -EFAULT;
 		return rc;
 	}
+	if (*cabc_status == oplus_cabc_status) {
+		LCD_DEBUG("cabc status(%d) no changed! skip setting!\n", *cabc_status);
+		return rc;
+	}
 
-	LCD_INFO("Set cabc status: %d, buf=[%s]\n", *cabc_status, buf);
-	mutex_lock(&display->display_lock);
+	LCD_INFO("Set cabc status: %d, cur status: %d\n", *cabc_status, oplus_cabc_status);
+	SDE_ATRACE_BEGIN("set_cabc_status");
 	mutex_lock(&panel->panel_lock);
-
 	cmd_index = DSI_CMD_CABC_OFF + *cabc_status;
 	rc = dsi_panel_tx_cmd_set(panel, cmd_index, false);
 	oplus_cabc_status = *cabc_status;
-
 	mutex_unlock(&panel->panel_lock);
-	mutex_unlock(&display->display_lock);
+	SDE_ATRACE_END("set_cabc_status");
 
 	return rc;
 }
@@ -1849,21 +1840,6 @@ int oplus_panel_parse_config(struct dsi_panel *panel)
         g_oplus_vreg_ctrl_config = panel->oplus_priv.oplus_vreg_ctrl_flag;
         LCD_INFO("lcm oplus_vreg_ctrl_flag: %s\n", panel->oplus_priv.oplus_vreg_ctrl_flag ? "true" : "false");
 
-	panel->oplus_priv.oplus_clk_vreg_ctrl_flag = utils->read_bool(utils->data, "oplus,clk_vreg_ctrl_flag");
-	g_oplus_clk_vreg_ctrl_config = panel->oplus_priv.oplus_clk_vreg_ctrl_flag;
-	LCD_INFO("lcm oplus_clk_vreg_ctrl_flag: %s\n", panel->oplus_priv.oplus_clk_vreg_ctrl_flag ? "true" : "false");
-
-	ret = utils->read_u32(utils->data, "oplus,clk_vreg_ctrl_value", &panel->oplus_priv.oplus_clk_vreg_ctrl_value);
-	if (ret) {
-		LCD_INFO("failed to get panel parameter: oplus,clk_vreg_ctrl_value\n");
-		panel->oplus_priv.oplus_clk_vreg_ctrl_value = 0x44;
-	}
-	g_oplus_clk_vreg_ctrl_value = panel->oplus_priv.oplus_clk_vreg_ctrl_value;
-	LCD_INFO("lcm g_oplus_clk_vreg_ctrl_value:0x%x \n", panel->oplus_priv.oplus_clk_vreg_ctrl_value);
-
-
-	utils->read_u32(utils->data, "oplus,dsi-serial-number-reg", &panel->oplus_ser.serial_number_reg);
-
 	ret = utils->read_u32(utils->data, "oplus,wait-te-config", &panel->oplus_priv.wait_te_config);
 	if (ret) {
 		LCD_INFO("failed to get panel parameter: oplus,wait-te-config\n");
@@ -2186,16 +2162,9 @@ void oplus_need_to_sync_te(struct dsi_panel *panel)
 		 * if it isn't enough for completing cmd sending,
 		 * defer sending the command until the second half of the next frame. */
 		left_time = us_per_frame - (vsync_width - delay);
-		if (panel->pwm_params.directional_onepulse_switch) {
-			if (left_time < 1000) {
-				delay = left_time + vsync_width;
-				usleep_range(delay, delay + 100);
-			}
-		} else {
-			if (left_time < 2000) {
-				delay = left_time + vsync_width;
-				usleep_range(delay, delay + 100);
-			}
+		if (left_time < 2000) {
+			delay = left_time + vsync_width;
+			usleep_range(delay, delay + 100);
 		}
 	}
 	SDE_ATRACE_END("oplus_need_to_sync_te");
@@ -2345,15 +2314,6 @@ int oplus_display_panel_set_hbm_max(void *data)
 	}
 
 	LCD_INFO("Set hbm max state=%d\n", hbm_max_state);
-
-	if ((!strcmp(panel->name, "P 3 AB781 dsc cmd mode panel")
-		|| !strcmp(panel->name, "P 3 AB714 dsc cmd mode panel")
-		|| !strcmp(panel->name, "P 7 AB715 dsc cmd mode panel"))
-		&& oplus_panel_pwm_onepulse_is_enabled(panel)) {
-		LCD_WARN("panel onepulse is enable, can't set hbm max\n");
-		rc = -EFAULT;
-		return rc;
-	}
 
 	mutex_lock(&display->display_lock);
 
@@ -2514,26 +2474,4 @@ void oplus_set_pwm_switch_cmd_te_flag(struct sde_connector *c_conn)
 	if (display->panel->oplus_priv.pwm_sw_cmd_te_cnt > 0) {
 		display->panel->oplus_priv.pwm_sw_cmd_te_cnt--;
 	}
-}
-
-int oplus_display_set_shutdown_flag(void *buf)
-{
-	shutdown_flag = 1;
-	pr_err("debug for %s, buf = [%s], shutdown_flag = %d\n",
-			__func__, buf, shutdown_flag);
-
-	return 0;
-}
-
-int oplus_display_panel_set_dc_compensate(void *data)
-{
-	uint32_t *dc_compensate = data;
-	dcc_flags = (int)(*dc_compensate);
-	DSI_INFO("DCCompensate set dc %d\n", dcc_flags);
-#ifdef OPLUS_TRACKPOINT_REPORT
-	if (dcc_flags == FILE_DESTROY) {
-		EXCEPTION_TRACKPOINT_REPORT("DisplayDriverID@@431$$DCCompensate file destroied!!");
-	}
-#endif /* OPLUS_TRACKPOINT_REPORT */
-	return 0;
 }

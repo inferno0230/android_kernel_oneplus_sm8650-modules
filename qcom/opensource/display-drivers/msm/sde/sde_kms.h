@@ -98,19 +98,12 @@
 	(((size) > (max_size)) || ((offset) > ((max_size) - (size))))
 
 #ifdef OPLUS_FEATURE_DISPLAY
-#ifdef OPLUS_TRACKPOINT_REPORT
-#include <soc/oplus/oplus_trackpoint_report.h>
+#include <soc/oplus/system/oplus_mm_kevent_fb.h>
 #define SDE_MM_ERROR(fmt, ...) \
 	do { \
 		pr_err("[sde error]" fmt, ##__VA_ARGS__); \
-		display_exception_trackpoint_report(fmt, ##__VA_ARGS__); \
+		mm_fb_display_kevent_named(MM_FB_KEY_RATELIMIT_1H, fmt, ##__VA_ARGS__); \
 	} while(0)
-#else
-#define SDE_MM_ERROR(fmt, ...) \
-	do { \
-		pr_err("[sde error]" fmt, ##__VA_ARGS__); \
-	} while(0)
-#endif /* OPLUS_TRACKPOINT_REPORT */
 #endif /* OPLUS_FEATURE_DISPLAY */
 
 /**

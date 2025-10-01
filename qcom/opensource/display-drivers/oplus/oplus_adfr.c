@@ -447,7 +447,7 @@ static bool oplus_adfr_high_precision_oa_mode_is_enabled(void *oplus_adfr_params
 	return (bool)(ADFR_GET_HIGH_PRECISION_OA_MODE_CONFIG(p_oplus_adfr_params->config));
 }
 
-bool oplus_adfr_high_precision_switch_is_enabled(void *oplus_adfr_params)
+static bool oplus_adfr_high_precision_switch_is_enabled(void *oplus_adfr_params)
 {
 	struct oplus_adfr_params *p_oplus_adfr_params = oplus_adfr_params;
 
@@ -495,6 +495,53 @@ int oplus_adfr_get_panel_high_precision_state(void *dsi_display)
 		OPLUS_ADFR_TRACE_END("oplus_adfr_get_panel_high_precision_state");
 		return -EINVAL;
 	}
+}
+
+static int oplus_adfr_panel_cmd_switch(struct dsi_panel *panel, enum dsi_cmd_set_type *type)
+{
+	enum dsi_cmd_set_type type_store = *type;
+	u32 count;
+
+	/* switch the command when switch to hpwm state */
+	if (oplus_panel_get_pwm_switch_state(panel) == PWM_SWITCH_HPWM_STATE
+			|| oplus_panel_pwm_onepulse_is_used(panel)) {
+		switch (*type) {
+		case DSI_CMD_ADFR_MIN_FPS_0:
+			*type = DSI_CMD_HPWM_ADFR_MIN_FPS_0;
+			break;
+		case DSI_CMD_ADFR_MIN_FPS_1:
+			*type = DSI_CMD_HPWM_ADFR_MIN_FPS_1;
+			break;
+		case DSI_CMD_ADFR_MIN_FPS_2:
+			*type = DSI_CMD_HPWM_ADFR_MIN_FPS_2;
+			break;
+		case DSI_CMD_ADFR_MIN_FPS_3:
+			*type = DSI_CMD_HPWM_ADFR_MIN_FPS_3;
+			break;
+		case DSI_CMD_ADFR_MIN_FPS_4:
+			*type = DSI_CMD_HPWM_ADFR_MIN_FPS_4;
+			break;
+		case DSI_CMD_ADFR_MIN_FPS_5:
+			*type = DSI_CMD_HPWM_ADFR_MIN_FPS_5;
+			break;
+		case DSI_CMD_ADFR_MIN_FPS_6:
+			*type = DSI_CMD_HPWM_ADFR_MIN_FPS_6;
+			break;
+		default:
+			break;
+		}
+	}
+
+	count = panel->cur_mode->priv_info->cmd_sets[*type].count;
+	if (count == 0) {
+		ADFR_DEBUG("[%s] %s is undefined, restore to %s\n",
+				panel->oplus_priv.vendor_name,
+				cmd_set_prop_map[*type],
+				cmd_set_prop_map[type_store]);
+		*type = type_store;
+	}
+
+	return 0;
 }
 
 static bool oplus_adfr_decreasing_step_is_enabled(void *oplus_adfr_params)
@@ -591,7 +638,6 @@ int oplus_adfr_parse_dtsi_config(void *dsi_panel, void *dsi_display_mode, void *
 		}
 		ADFR_INFO("oplus_adfr_idle_off_min_fps:%u\n", priv_info->oplus_adfr_idle_off_min_fps);
 	}
-	priv_info->oplus_adfr_idle_min_fps_log = false;
 
 #ifdef OPLUS_FEATURE_DISPLAY_HIGH_PRECISION
 	/* high precision dtsi parse */
@@ -784,6 +830,9 @@ static int oplus_adfr_panel_cmd_set_nolock(void *dsi_panel, enum dsi_cmd_set_typ
 	}
 
 	if (!oplus_adfr_dry_run_is_enabled(p_oplus_adfr_params)) {
+		if (oplus_adfr_high_precision_switch_is_enabled(p_oplus_adfr_params)) {
+			oplus_adfr_panel_cmd_switch(panel, &type);
+		}
 		OPLUS_ADFR_TRACE_BEGIN("dsi_panel_tx_cmd_set");
 		rc = dsi_panel_tx_cmd_set(panel, type, false);
 		OPLUS_ADFR_TRACE_END("dsi_panel_tx_cmd_set");
@@ -1350,15 +1399,12 @@ int oplus_adfr_set_min_fps_updated(void *dsi_panel)
 		return 0;
 	}
 
-	OPLUS_ADFR_TRACE_BEGIN("oplus_adfr_set_min_fps_updated");
+	OPLUS_ADFR_TRACE_BEGIN("oplus_adfr_min_fps_force_update");
 	p_oplus_adfr_params->sa_min_fps_updated = true;
-	if (oplus_adfr_high_precision_sa_mode_is_enabled(p_oplus_adfr_params)) {
-		p_oplus_adfr_params->sa_high_precision_fps_updated = true;
-	}
 	ADFR_INFO("oplus_adfr_sa_min_fps_updated:%d\n", p_oplus_adfr_params->sa_min_fps_updated);
 	OPLUS_ADFR_TRACE_INT("oplus_adfr_sa_min_fps_updated", p_oplus_adfr_params->sa_min_fps_updated);
 
-	OPLUS_ADFR_TRACE_END("oplus_adfr_set_min_fps_updated");
+	OPLUS_ADFR_TRACE_END("oplus_adfr_min_fps_force_update");
 
 	ADFR_DEBUG("end\n");
 
@@ -1505,39 +1551,17 @@ static int oplus_adfr_min_fps_update(void *dsi_display, unsigned int min_fps)
 		}
 	}
 
-	/* send the commands to set min fps
-	 * AA545/AC090 panel only have difference between 1 and 3 pulse
-	 * AA567/AA577 have more complicated differentiate logic */
-	if (!strcmp(display->panel->name, "AA545 P 3 A0005 dsc cmd mode panel")
-			|| !strcmp(display->panel->name, "AC090 P 3 A0005 dsc cmd mode panel")) {
-		if (oplus_panel_pwm_onepulse_is_enabled(display->panel)
-				&& (oplus_panel_get_pwm_switch_state(display->panel) == PWM_SWITCH_DC_STATE)) {
-			rc = oplus_adfr_display_cmd_set(display, DSI_CMD_HPWM_ADFR_MIN_FPS_0 + i);
-			if (rc) {
-				ADFR_ERR("[%s] failed to send DSI_CMD_HPWM_ADFR_MIN_FPS_%d cmds, rc=%d\n", display->name, i, rc);
-			}
-		} else {
-			rc = oplus_adfr_display_cmd_set(display, DSI_CMD_ADFR_MIN_FPS_0 + i);
-			if (rc) {
-				ADFR_ERR("[%s] failed to send DSI_CMD_ADFR_MIN_FPS_%d cmds, rc=%d\n", display->name, i, rc);
-			}
+	/* send the commands to set min fps */
+	if (oplus_panel_get_pwm_switch_state(display->panel) == PWM_SWITCH_HPWM_STATE
+			|| oplus_panel_pwm_onepulse_is_used(display->panel)) {
+		rc = oplus_adfr_display_cmd_set(display, DSI_CMD_HPWM_ADFR_MIN_FPS_0 + i);
+		if (rc) {
+			ADFR_ERR("[%s] failed to send DSI_CMD_HPWM_ADFR_MIN_FPS_%d cmds, rc=%d\n", display->name, i, rc);
 		}
 	} else {
-		if (oplus_panel_pwm_get_pulse_state() == PWM_STATE_L1) {
-			rc = oplus_adfr_display_cmd_set(display, DSI_CMD_BIGDC_ADFR_MIN_FPS_0 + i);
-			if (rc) {
-				ADFR_ERR("[%s] failed to send DSI_CMD_BIGDC_ADFR_MIN_FPS_%d cmds, rc=%d\n", display->name, i, rc);
-			}
-		} else if (oplus_panel_pwm_get_pulse_state() == PWM_STATE_L3) {
-			rc = oplus_adfr_display_cmd_set(display, DSI_CMD_HPWM_ADFR_MIN_FPS_0 + i);
-			if (rc) {
-				ADFR_ERR("[%s] failed to send DSI_CMD_HPWM_ADFR_MIN_FPS_%d cmds, rc=%d\n", display->name, i, rc);
-			}
-		} else {
-			rc = oplus_adfr_display_cmd_set(display, DSI_CMD_ADFR_MIN_FPS_0 + i);
-			if (rc) {
-				ADFR_ERR("[%s] failed to send DSI_CMD_ADFR_MIN_FPS_%d cmds, rc=%d\n", display->name, i, rc);
-			}
+		rc = oplus_adfr_display_cmd_set(display, DSI_CMD_ADFR_MIN_FPS_0 + i);
+		if (rc) {
+			ADFR_ERR("[%s] failed to send DSI_CMD_ADFR_MIN_FPS_%d cmds, rc=%d\n", display->name, i, rc);
 		}
 	}
 
@@ -1817,10 +1841,6 @@ int oplus_adfr_status_reset(void *dsi_panel)
 		}
 
 		p_oplus_adfr_params->sa_min_fps = refresh_rate;
-		p_oplus_adfr_params->sa_min_fps_updated = false;
-		if (oplus_adfr_high_precision_sa_mode_is_enabled(p_oplus_adfr_params)) {
-			p_oplus_adfr_params->sa_high_precision_fps_updated = false;
-		}
 
 		if (oplus_adfr_high_precision_sa_mode_is_enabled(p_oplus_adfr_params)) {
 			p_oplus_adfr_params->sa_high_precision_fps = refresh_rate;
@@ -3370,7 +3390,7 @@ int oplus_adfr_idle_mode_handle(void *sde_encoder_virt, bool enter_idle)
 	h_skew = display->panel->cur_mode->timing.h_skew;
 	refresh_rate = display->panel->cur_mode->timing.refresh_rate;
 
-	if (enter_idle && (p_oplus_adfr_params->idle_mode != OPLUS_ADFR_IDLE_ON)) {
+	if (enter_idle) {
 		if (h_skew == STANDARD_ADFR || h_skew == STANDARD_MFR) {
 			/* enter idle mode if auto mode is off and min fps is less than idle_off_min_fps */
 			if ((p_oplus_adfr_params->auto_mode == OPLUS_ADFR_AUTO_OFF)
@@ -3389,7 +3409,6 @@ int oplus_adfr_idle_mode_handle(void *sde_encoder_virt, bool enter_idle)
 				}
 
 				/* send min fps before enter idle */
-				priv_info->oplus_adfr_idle_min_fps_log = true;
 				rc = oplus_adfr_min_fps_update(display, p_oplus_adfr_params->sa_min_fps);
 				if (rc) {
 					ADFR_ERR("failed to update sa min fps, rc=%d\n", rc);
@@ -3417,7 +3436,6 @@ int oplus_adfr_idle_mode_handle(void *sde_encoder_virt, bool enter_idle)
 				}
 
 				/* send min fps after exit idle */
-				priv_info->oplus_adfr_idle_min_fps_log = true;
 				rc = oplus_adfr_min_fps_update(display, idle_off_min_fps);
 				if (rc) {
 					ADFR_ERR("failed to update sa min fps, rc=%d\n", rc);
@@ -3613,15 +3631,13 @@ int oplus_adfr_test_te_high_gear(void *dsi_display) {
 		high_gear = 90;
 		break;
 	case 120:
+	case 60:
 	case 90:
 		if (!oplus_adfr_decreasing_step_is_enabled(p_oplus_adfr_params)) {
 			high_gear = 55;
 		} else {
 			high_gear = 52;
 		}
-		break;
-	case 60:
-		high_gear = 45;
 		break;
 	default:
 		high_gear = 55;
@@ -3789,7 +3805,7 @@ static irqreturn_t oplus_adfr_test_te_irq_handler(int irq, void *data)
 				 * 144hz: >90 is 144
 				 * 120hz: >55 is 120, sw_fps==60 is 60
 				 * 90hz: >55 is 90
-				 * 60hz: >45 is 60 */
+				 * 60hz: >55 is 60 */
 				if (temp_refresh_rate > oplus_adfr_test_te_high_gear(display)) {
 					p_oplus_adfr_params->test_te.high_refresh_rate_count++;
 					p_oplus_adfr_params->test_te.middle_refresh_rate_count = 0;
@@ -3806,7 +3822,7 @@ static irqreturn_t oplus_adfr_test_te_irq_handler(int irq, void *data)
 				 * 144hz: 0~90 is 72
 				 * 120hz: 17~55 is 30
 				 * 90hz: 17~55 is 30
-				 * 60hz: 17~45 is 30 */
+				 * 60hz: 17~55 is 30 */
 				} else if (temp_refresh_rate > oplus_adfr_test_te_low_gear(display) && temp_refresh_rate <= oplus_adfr_test_te_high_gear(display)) {
 					p_oplus_adfr_params->test_te.high_refresh_rate_count = 0;
 					/* update refresh rate if one continous temp_refresh_rate are greater than low gear and less than or equal to high gear */
@@ -3826,7 +3842,7 @@ static irqreturn_t oplus_adfr_test_te_irq_handler(int irq, void *data)
 				 * 144hz: >90 is 144
 				 * 120hz: >52 is 120, sw_fps==60 is 60
 				 * 90hz: >52 is 90
-				 * 60hz: >45 is 60 */
+				 * 60hz: >52 is 60 */
 				if (temp_refresh_rate > oplus_adfr_test_te_high_gear(display)) {
 					p_oplus_adfr_params->test_te.high_refresh_rate_count++;
 					p_oplus_adfr_params->test_te.middle_refresh_rate_count = 0;
@@ -3843,7 +3859,7 @@ static irqreturn_t oplus_adfr_test_te_irq_handler(int irq, void *data)
 				 * 144hz: 13~90 is 36
 				 * 120hz: 11~52 is 30
 				 * 90hz: 11~52 is 30
-				 * 60hz: 11~45 is 30 */
+				 * 60hz: 11~52 is 30 */
 				} else if (temp_refresh_rate > oplus_adfr_test_te_low_gear(display) && temp_refresh_rate <= oplus_adfr_test_te_high_gear(display)) {
 					p_oplus_adfr_params->test_te.middle_refresh_rate_count++;
 					if (p_oplus_adfr_params->test_te.high_refresh_rate_count > 0) {
@@ -5198,7 +5214,6 @@ static int oplus_adfr_high_precision_fps_check(void *dsi_panel, unsigned int hig
 	unsigned int h_skew = STANDARD_ADFR;
 	struct dsi_panel *panel = dsi_panel;
 	struct oplus_adfr_params *p_oplus_adfr_params = NULL;
-	struct dsi_display_mode_priv_info *priv_info = NULL;
 
 	ADFR_DEBUG("start\n");
 
@@ -5230,30 +5245,22 @@ static int oplus_adfr_high_precision_fps_check(void *dsi_panel, unsigned int hig
 		return -EINVAL;
 	}
 
-	priv_info = panel->cur_mode->priv_info;
-	if (!priv_info->oplus_adfr_high_precision_fps_mapping_table) {
-		ADFR_ERR("invalid mapping table params");
-		return -EINVAL;
-	}
-
 	OPLUS_ADFR_TRACE_BEGIN("oplus_adfr_high_precision_fps_check");
 
 	refresh_rate = panel->cur_mode->timing.refresh_rate;
 	h_skew = panel->cur_mode->timing.h_skew;
-	high_precision_fps_mapping_table_count = priv_info->oplus_adfr_high_precision_fps_mapping_table_count;
-	ADFR_INFO("high_precision_fps_mapping_table_count:%u\n", high_precision_fps_mapping_table_count);
+	high_precision_fps_mapping_table_count = panel->cur_mode->priv_info->oplus_adfr_high_precision_fps_mapping_table_count;
 	ADFR_DEBUG("refresh_rate:%u,h_skew:%u,high_precision_fps_mapping_table_count:%u\n",
 					refresh_rate, h_skew, high_precision_fps_mapping_table_count);
 
 	if (!high_precision_fps_mapping_table_count || !high_precision_fps) {
 		/* fixed max high precision fps */
 		high_precision_fps = refresh_rate;
-	} else if ((high_precision_fps > priv_info->oplus_adfr_high_precision_fps_mapping_table[0])
-			|| (high_precision_fps < priv_info->oplus_adfr_high_precision_fps_mapping_table[high_precision_fps_mapping_table_count - 1])) {
+	} else if ((high_precision_fps > panel->cur_mode->priv_info->oplus_adfr_high_precision_fps_mapping_table[0])
+					|| (high_precision_fps < panel->cur_mode->priv_info->oplus_adfr_high_precision_fps_mapping_table[high_precision_fps_mapping_table_count - 1])) {
 		/* the highest frame rate is the most stable */
-		high_precision_fps = priv_info->oplus_adfr_high_precision_fps_mapping_table[0];
+		high_precision_fps = panel->cur_mode->priv_info->oplus_adfr_high_precision_fps_mapping_table[0];
 	}
-
 
 	ADFR_DEBUG("high precision fps is %u after check\n", high_precision_fps);
 
@@ -5456,12 +5463,8 @@ static int oplus_adfr_high_precision_fps_update(void *dsi_display, unsigned int 
 	}
 
 	/* send the commands to set high precision fps */
-	if (oplus_panel_pwm_get_pulse_state() == PWM_STATE_L1) {
-		rc = oplus_adfr_display_cmd_set(display, DSI_CMD_BIGDC_ADFR_HIGH_PRECISION_FPS_0 + i);
-		if (rc) {
-			ADFR_ERR("[%s] failed to send DSI_CMD_BIGDC_ADFR_HIGH_PRECISION_FPS_%d cmds, rc=%d\n", display->name, i, rc);
-		}
-	} else if (oplus_panel_pwm_get_pulse_state() == PWM_STATE_L3) {
+	if (oplus_panel_get_pwm_switch_state(display->panel) == PWM_SWITCH_HPWM_STATE
+			|| oplus_panel_pwm_onepulse_is_used(display->panel)) {
 		rc = oplus_adfr_display_cmd_set(display, DSI_CMD_HPWM_ADFR_HIGH_PRECISION_FPS_0 + i);
 		if (rc) {
 			ADFR_ERR("[%s] failed to send DSI_CMD_HPWM_ADFR_HIGH_PRECISION_FPS_%d cmds, rc=%d\n", display->name, i, rc);
@@ -5601,7 +5604,7 @@ int oplus_adfr_high_precision_handle(void *sde_enc_v)
 			stabilize_frame_type = oplus_adfr_get_stabilize_frame_type(display);
 			if ((priv_info->oplus_adfr_sw_stabilize_frame_config_table_count)
 				&& (stabilize_frame_type == OPLUS_ADFR_SW_STABILIZE_FRAME)
-				&& (oplus_panel_pwm_get_pulse_state() == PWM_STATE_L2)
+				&& (oplus_panel_get_pwm_switch_state(display->panel) == PWM_SWITCH_DC_STATE)
 				&& (!oplus_panel_pwm_onepulse_is_used(display->panel))
 				&& p_oplus_adfr_params->osync_min_fps) {
 					oplus_adfr_high_precision_update_te_shift(display);
@@ -5689,13 +5692,7 @@ int oplus_adfr_high_precision_switch_state(void *dsi_panel)
 	}
 
 	if (last_high_precision_switch_state != high_precision_switch_state) {
-		if (oplus_panel_get_pwm_switch_support_dc(panel)
-				&& oplus_panel_pwm_onepulse_is_enabled(panel)) {
-			rc = oplus_adfr_panel_cmd_set_nolock(panel, DSI_CMD_BIGDC_ADFR_HIGH_PRECISION_FPS_0 + i);
-			if (rc) {
-				ADFR_ERR("[%s] failed to send DSI_CMD_BIGDC_ADFR_HIGH_PRECISION_FPS_%d cmds, rc=%d\n", panel->name, i, rc);
-			}
-		} else if (high_precision_switch_state == PWM_SWITCH_HPWM_STATE
+		if (high_precision_switch_state == PWM_SWITCH_HPWM_STATE
 				|| oplus_panel_pwm_onepulse_is_used(panel)) {
 			rc = oplus_adfr_panel_cmd_set_nolock(panel, DSI_CMD_HPWM_ADFR_HIGH_PRECISION_FPS_0 + i);
 			if (rc) {
@@ -6010,7 +6007,6 @@ int oplus_adfr_get_test_te(void *buf)
 		ADFR_INFO("test te gpio is invalid, use current timing refresh rate\n");
 	} else {
 		*refresh_rate = p_oplus_adfr_params->test_te.refresh_rate;
-		ADFR_INFO("oplus_adfr_test_te_refresh_rate:%u\n", *refresh_rate);
 	}
 
 	ADFR_DEBUG("oplus_adfr_test_te_refresh_rate:%u\n", *refresh_rate);

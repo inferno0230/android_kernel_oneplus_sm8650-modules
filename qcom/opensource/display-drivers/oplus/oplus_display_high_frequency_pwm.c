@@ -20,19 +20,19 @@
 #ifdef OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT
 #include "oplus_onscreenfingerprint.h"
 #endif /* OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT */
-#ifdef OPLUS_FEATURE_DISPLAY_ADFR
-#include "oplus_adfr.h"
-#endif /* OPLUS_FEATURE_DISPLAY_ADFR */
 #if defined(CONFIG_PXLW_IRIS)
 #include "dsi_iris_api.h"
 #endif
+
+#ifdef OPLUS_FEATURE_DISPLAY_ADFR
+#include "oplus_adfr.h"
+#endif /* OPLUS_FEATURE_DISPLAY_ADFR */
 
 /* -------------------- extern ---------------------------------- */
 extern u32 oplus_last_backlight;
 extern bool refresh_rate_change;
 static u32 pwm_switch_cmd_restore = 0;
 static u32 pwm_switch_state_before = 0;
-static bool last_enable_state = false;
 bool oplus_pwm_onepluse_switch = false;
 u32 bl_lvl = 0;
 static u32 pwm_switch_next_cmdq = 0;
@@ -136,25 +136,10 @@ int oplus_pwm_turbo_probe(struct dsi_panel *panel)
 		panel->oplus_pwm_switch_send_next_cmdq_wq = create_singlethread_workqueue("oplus_pwm_switch_send_next_cmdq_wq");
 		INIT_WORK(&panel->oplus_pwm_switch_send_next_cmdq_work, oplus_pwm_switch_send_next_cmdq_work_handler);
 	}
-	panel->pwm_params.pwm_switch_support_dc = utils->read_bool(utils->data,
-			"oplus,pwm-switch-support-dc");
-	LCD_INFO("oplus,pwm-switch-support-dc: %s\n",
-			panel->pwm_params.pwm_switch_support_dc ? "true" : "false");
 	panel->pwm_params.pwm_power_on = false;
 	panel->pwm_params.pwm_hbm_state = false;
 	panel->pwm_params.pack_backlight = false;
 	PWM_TURBO_INFO("pwm_turbo oplus_pwm_turbo_probe successful\n");
-
-	rc = utils->read_u32(utils->data, "oplus,oplus_dynamic_pulse", &val);
-	if (rc) {
-		panel->pwm_params.oplus_dynamic_pulse = 0;
-	} else {
-		panel->pwm_params.oplus_dynamic_pulse = val;
-	}
-	panel->pwm_params.pwm_switch_support_extend_mode = utils->read_bool(utils->data,
-			"oplus,pwm-switch-support-extend-mode");
-	LCD_INFO("oplus,pwm-switch-support-extend-mode: %s\n",
-			panel->pwm_params.pwm_switch_support_extend_mode ? "true" : "false");
 	return 0;
 }
 
@@ -233,77 +218,6 @@ void oplus_pwm_disable_duty_set_work_handler(struct work_struct *work)
 	return;
 }
 
-int oplus_panel_pwm_extend_mode_wait_te(struct dsi_panel *panel, u32 pwm_switch_cmd)
-{
-	int rc = 0;
-	unsigned int time_interval = 0;
-	unsigned int refresh_rate = panel->cur_mode->timing.refresh_rate;
-	unsigned int last_refresh_rate = panel->last_refresh_rate;
-
-	if (!panel || !panel->cur_mode) {
-		LCD_ERR("[DISP][ERR][%s:%d]Invalid panel params\n", __func__, __LINE__);
-		return -EINVAL;
-	}
-
-	if (panel->pwm_params.pwm_power_on && panel->pwm_params.pwm_switch_support_extend_mode) {
-		panel->pwm_params.pwm_power_on = false;
-		panel->pwm_params.oplus_pwm_switch_state_changed = false;
-		if ((panel->pwm_params.oplus_dynamic_pulse == ONE_EIGHTEEN_PULSE)
-			&& (panel->bl_config.bl_level > panel->pwm_params.pwm_bl_threshold)
-			&& (panel->pwm_params.oplus_aod_mutual_fps_flag == false)) {
-			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_PWM_SWITCH_3TO1, false);
-		}
-		return rc;
-	}
-
-	if ((pwm_switch_state_before != panel->pwm_params.oplus_pwm_switch_state) || (panel->pwm_params.oplus_pwm_switch_state_changed == true)) {
-#ifdef OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT
-		if (oplus_ofp_is_supported()) {
-			oplus_ofp_aod_off_cmdq_delay_check(panel);
-		}
-#endif /* OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT */
-
-		oplus_sde_early_wakeup(panel);
-		oplus_wait_for_vsync(panel);
-		if (refresh_rate == 60 || refresh_rate == 90 || (refresh_rate == 120 && last_refresh_rate == 90)) {
-			oplus_need_to_sync_te(panel);
-		} else if (refresh_rate == 120) {
-			usleep_range(300, 300);
-		}
-
-		if (panel->pwm_params.oplus_aod_mutual_fps_flag && (pwm_switch_cmd == DSI_CMD_PWM_SWITCH_1TO18 || pwm_switch_cmd == DSI_CMD_PWM_SWITCH_18TO1)) {
-			panel->pwm_params.oplus_aod_mutual_fps_flag = false;
-			time_interval = ktime_to_ms(ktime_sub(ktime_get(), panel->pwm_params.aod_off_timestamp));
-			if (time_interval < 70) {
-				oplus_sde_early_wakeup(panel);
-				oplus_wait_for_vsync(panel);
-				oplus_wait_for_vsync(panel);
-			}
-		}
-
-		rc = dsi_panel_tx_cmd_set(panel, pwm_switch_cmd, false);
-
-		if(panel->pwm_params.pwm_switch_support_extend_mode) {
-			if (pwm_switch_cmd == DSI_CMD_PWM_SWITCH_HIGH || pwm_switch_cmd == DSI_CMD_PWM_SWITCH_LOW) {
-				oplus_sde_early_wakeup(panel);
-				oplus_wait_for_vsync(panel);
-			} else if (pwm_switch_cmd == DSI_CMD_PWM_SWITCH_1TO18 || pwm_switch_cmd == DSI_CMD_PWM_SWITCH_18TO1) {
-				oplus_sde_early_wakeup(panel);
-				oplus_wait_for_vsync(panel);
-				oplus_wait_for_vsync(panel);
-			}
-		}
-
-		if (panel->oplus_priv.pwm_create_thread) {
-			queue_work(panel->oplus_pwm_disable_duty_set_wq, &panel->oplus_pwm_disable_duty_set_work);
-		}
-	}
-	panel->pwm_params.pwm_power_on = false;
-	panel->pwm_params.oplus_pwm_switch_state_changed = false;
-
-	return rc;
-}
-
 int oplus_panel_pwm_switch_wait_te_tx_cmd(struct dsi_panel *panel, u32 pwm_switch_cmd)
 {
 	int rc = 0;
@@ -360,17 +274,6 @@ inline bool oplus_panel_get_pwm_switch_state(struct dsi_panel *panel)
 }
 EXPORT_SYMBOL(oplus_panel_get_pwm_switch_state);
 
-inline bool oplus_panel_get_pwm_switch_support_dc(struct dsi_panel *panel)
-{
-	if (!panel) {
-		LCD_ERR("panel is NULL\n");
-		return false;
-	}
-
-	return panel->pwm_params.pwm_switch_support_dc;
-}
-EXPORT_SYMBOL(oplus_panel_get_pwm_switch_support_dc);
-
 inline bool oplus_panel_pwm_onepulse_is_enabled(struct dsi_panel *panel)
 {
 	if (!panel) {
@@ -388,18 +291,8 @@ inline bool oplus_panel_pwm_onepulse_is_used(struct dsi_panel *panel)
 		return false;
 	}
 
-	if (oplus_panel_pwm_onepulse_is_enabled(panel)) {
-		if (panel->pwm_params.pwm_switch_support_dc) {
-			LCD_ERR("oplus_panel \n");
-			return true;
-		} else if (panel->pwm_params.oplus_pwm_switch_state == PWM_SWITCH_DC_STATE) {
-			return true;
-		} else {
-			return false;
-		}
-	} else {
-		return false;
-	}
+	return oplus_panel_pwm_onepulse_is_enabled(panel)
+		&& (panel->pwm_params.oplus_pwm_switch_state == PWM_SWITCH_DC_STATE);
 }
 
 static void oplus_panel_directional_pwm_switch_tx_cmd(struct dsi_panel *panel,
@@ -463,8 +356,9 @@ static int oplus_panel_directional_pwm_switch_wait_te_tx_cmd(struct dsi_panel *p
 			}
 		}
 
-		if (panel->pwm_params.pwm_power_on == true) {
+		if (panel->pwm_params.pwm_power_on == true || panel->pwm_params.post_power_on) {
 			panel->pwm_params.pwm_power_on = false;
+			panel->pwm_params.post_power_on = false;
 			oplus_panel_directional_onepulse_poweron_handle(panel, pwm_switch_state_before);
 		}
 
@@ -474,6 +368,12 @@ static int oplus_panel_directional_pwm_switch_wait_te_tx_cmd(struct dsi_panel *p
 		}
 		usleep_range(120, 120);
 		rc = dsi_panel_tx_cmd_set(panel, pwm_switch_cmd, false);
+		if (pwm_switch_cmd == DSI_CMD_PWM_SWITCH_HIGH
+			|| pwm_switch_cmd == DSI_CMD_PWM_SWITCH_LOW
+			|| pwm_switch_cmd == DSI_CMD_PWM_SWITCH_ONEPULSE
+			|| pwm_switch_cmd == DSI_CMD_PWM_SWITCH_ONEPULSE_LOW) {
+			panel->oplus_priv.pwm_sw_cmd_te_cnt = 1;
+		}
 	}
 	return rc;
 }
@@ -498,73 +398,37 @@ int oplus_panel_pwm_switch_tx_cmd(struct dsi_panel *panel)
 	}
 
 	if (panel->pwm_params.oplus_pwm_switch_state == PWM_SWITCH_DC_STATE) {
-		if (panel->pwm_params.pwm_switch_support_extend_mode) {
-			if(panel->pwm_params.oplus_dynamic_pulse == ONE_ONE_PULSE) {
-				if (panel->pwm_params.pwm_power_on) {
-					pwm_switch_cmd = DSI_CMD_PWM_SWITCH_3TO1;
-					panel->pwm_params.oplus_pulse_mutual_fps_flag = 2;
-				}
-			} else if (panel->pwm_params.oplus_dynamic_pulse == THREE_EIGHTEEN_PULSE) {
-				if (!panel->pwm_params.pwm_power_on) {
-					pwm_switch_cmd = DSI_CMD_PWM_SWITCH_HIGH;
-				}
-			} else { /*1-18*/
-				if (panel->pwm_params.pwm_power_on) {
-					pwm_switch_cmd = DSI_CMD_PWM_SWITCH_3TO1;
-					panel->pwm_params.oplus_pulse_mutual_fps_flag = 2;
-				} else {
-					pwm_switch_cmd = DSI_CMD_PWM_SWITCH_18TO1;
-				}
-			}
-		} else {
-			pwm_switch_cmd = DSI_CMD_PWM_SWITCH_HIGH;
-			pwm_switch_cmd_restore = DSI_CMD_PWM_SWITCH_HIGH_RESTORE;
-			if (panel->pwm_params.pwm_power_on) {
-				if ((!strcmp(panel->name, "enzo boe_ili7838e 1264 2780 evt dsc cmd mode panel")
-				|| !strcmp(panel->name, "enzo boe_ili7838e 1264 2780 pvt bd dsc cmd mode panel")
-				|| !strcmp(panel->name, "P 3 AB781 dsc cmd mode panel")
-				|| !strcmp(panel->name, "P 3 AB714 dsc cmd mode panel")
-				|| !strcmp(panel->name, "P 7 AB715 dsc cmd mode panel"))
-				&& oplus_panel_pwm_onepulse_is_enabled(panel)) {
-					pwm_switch_cmd = DSI_CMD_PWM_SWITCH_3TO1;
-				} else {
-					pwm_switch_cmd = DSI_CMD_TIMMING_PWM_SWITCH_HIGH;
-				}
+		pwm_switch_cmd = DSI_CMD_PWM_SWITCH_HIGH;
+		pwm_switch_cmd_restore = DSI_CMD_PWM_SWITCH_HIGH_RESTORE;
+		if (panel->pwm_params.pwm_power_on) {
+			if ((!strcmp(panel->name, "enzo boe_ili7838e 1264 2780 evt dsc cmd mode panel")
+			 || !strcmp(panel->name, "enzo boe_ili7838e 1264 2780 pvt bd dsc cmd mode panel")
+			 || !strcmp(panel->name, "P 3 AB781 dsc cmd mode panel")
+			 || !strcmp(panel->name, "P 3 AB714 dsc cmd mode panel")
+			 || !strcmp(panel->name, "P 7 AB715 dsc cmd mode panel"))
+			  && oplus_panel_pwm_onepulse_is_enabled(panel)) {
+				pwm_switch_cmd = DSI_CMD_PWM_SWITCH_3TO1;
+			} else {
+				pwm_switch_cmd = DSI_CMD_TIMMING_PWM_SWITCH_HIGH;
 			}
 		}
 	} else {
-		if (panel->pwm_params.pwm_switch_support_extend_mode) {
-			if (panel->pwm_params.oplus_dynamic_pulse == THREE_EIGHTEEN_PULSE) {
-					if (!panel->pwm_params.pwm_power_on) {
-						pwm_switch_cmd = DSI_CMD_PWM_SWITCH_LOW;
-					}
-			} else if (panel->pwm_params.oplus_dynamic_pulse == ONE_EIGHTEEN_PULSE) {
-				if (!panel->pwm_params.pwm_power_on) {
-					pwm_switch_cmd = DSI_CMD_PWM_SWITCH_1TO18;
-				}
-			}
-		} else {
-			pwm_switch_cmd = DSI_CMD_PWM_SWITCH_LOW;
-			pwm_switch_cmd_restore = DSI_CMD_PWM_SWITCH_LOW_RESTORE;
-			if (panel->pwm_params.pwm_power_on)
-				pwm_switch_cmd = DSI_CMD_TIMMING_PWM_SWITCH_LOW;
-		}
+		pwm_switch_cmd = DSI_CMD_PWM_SWITCH_LOW;
+		pwm_switch_cmd_restore = DSI_CMD_PWM_SWITCH_LOW_RESTORE;
+		if (panel->pwm_params.pwm_power_on)
+			pwm_switch_cmd = DSI_CMD_TIMMING_PWM_SWITCH_LOW;
 	}
-
 	if (panel->pwm_params.directional_onepulse_switch) {
 		pwm_switch_cmd_restore = 0;
 		oplus_panel_directional_pwm_switch_tx_cmd(panel, &pwm_switch_cmd);
 	}
 
 	if (panel->pwm_params.pwm_wait_te_tx) {
-		if (panel->pwm_params.pwm_switch_support_extend_mode) {
-			oplus_panel_pwm_extend_mode_wait_te(panel, pwm_switch_cmd);
-		} else if (panel->pwm_params.directional_onepulse_switch) {
+		if (panel->pwm_params.directional_onepulse_switch) {
 			oplus_panel_directional_pwm_switch_wait_te_tx_cmd(panel, pwm_switch_cmd);
 		}
-		else {
+		else
 			oplus_panel_pwm_switch_wait_te_tx_cmd(panel, pwm_switch_cmd);
-		}
 	} else {
 		rc = dsi_panel_tx_cmd_set(panel, pwm_switch_cmd, false);
 		panel->pwm_params.pwm_power_on = false;
@@ -644,7 +508,7 @@ int oplus_panel_pwm_switch(struct dsi_panel *panel, u32 *backlight_level)
 		return rc;
 	}
 
-	if (bl_lvl == 0 || (!panel->pwm_params.directional_onepulse_switch && bl_lvl == 1 && strcmp(panel->name, "P 3 AB781 dsc cmd mode panel")))
+	if (bl_lvl == 0 || (!panel->pwm_params.directional_onepulse_switch && bl_lvl == 1))
 		return rc;
 
 	if (panel->power_mode == SDE_MODE_DPMS_OFF) {
@@ -676,17 +540,15 @@ int oplus_panel_pwm_switch(struct dsi_panel *panel, u32 *backlight_level)
 			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_PWM_SWITCH_THREEPULSE, false);
 		}
 	}
-
 	if (panel->pwm_params.oplus_pwm_switch_state_changed == true
 			|| oplus_last_backlight == 0
 			|| panel->pwm_params.pwm_power_on) {
 		rc = oplus_panel_pwm_switch_tx_cmd(panel);
+#ifdef OPLUS_FEATURE_DISPLAY_ADFR
+		oplus_adfr_set_min_fps_updated(panel);
+#endif /* OPLUS_FEATURE_DISPLAY_ADFR */
 	}
 	oplus_panel_event_data_notifier_trigger(panel, DRM_PANEL_EVENT_PWM_TURBO, !(panel->pwm_params.oplus_pwm_switch_state), true);
-
-	if (pwm_switch_state_before != panel->pwm_params.oplus_pwm_switch_state) {
-		oplus_adfr_set_min_fps_updated(panel);
-	}
 
 	return 0;
 }
@@ -904,7 +766,7 @@ ssize_t oplus_set_pwm_turbo_debug(struct kobject *obj,
 	return count;
 }
 
-int oplus_panel_update_pwm_pulse_lock(struct dsi_panel *panel, uint32_t enabled)
+int oplus_panel_update_pwm_pulse_lock(struct dsi_panel *panel, bool enabled)
 {
 	int rc = 0;
 	unsigned int refresh_rate = panel->cur_mode->timing.refresh_rate;
@@ -935,60 +797,16 @@ int oplus_panel_update_pwm_pulse_lock(struct dsi_panel *panel, uint32_t enabled)
 				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_PWM_SWITCH_1TO3, false);
 			}
 		}
-	} else if (!strcmp(panel->name, "AA577 P 3 A0020 dsc cmd mode panel")) {
-		/* "1-1" or "3-18" or "1-18" */
-		if(enabled == 0) {
-			panel->pwm_params.oplus_dynamic_pulse = THREE_EIGHTEEN_PULSE;
-		} else if (enabled == 1) {
-			panel->pwm_params.oplus_dynamic_pulse = ONE_EIGHTEEN_PULSE;
-		} else if (enabled == 2) {
-			panel->pwm_params.oplus_dynamic_pulse = ONE_ONE_PULSE;
-		}
-
-		if(panel->pwm_params.oplus_pwm_switch_state == PWM_SWITCH_DC_STATE) {
-			if (enabled == THREE_EIGHTEEN_PULSE) {
-				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_PWM_SWITCH_1TO3, false);
-			} else {
-				if (panel->pwm_params.oplus_last_dynamic_pulse == THREE_EIGHTEEN_PULSE) {
-					rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_PWM_SWITCH_3TO1, false);
-					panel->pwm_params.oplus_pulse_mutual_fps_flag = 2;
-				}
-			}
-		} else {
-			if(enabled == ONE_ONE_PULSE) {
-				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_PWM_SWITCH_3TO1, false);
-				panel->pwm_params.oplus_pulse_mutual_fps_flag = 2;
-			} else {
-				if (panel->pwm_params.oplus_last_dynamic_pulse == ONE_ONE_PULSE) {
-					rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_PWM_SWITCH_1TO3, false);
-				}
-			}
-		}
 	} else {
 		panel->pwm_params.oplus_pwm_switch_state_changed = true;
-		if (panel->pwm_params.pwm_switch_support_dc) {
-			if (oplus_panel_pwm_onepulse_is_enabled(panel)) {
-				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_PWM_SWITCH_3TO1, false);
-				panel->pwm_params.oplus_pulse_mutual_fps_flag = 2;
-			} else {
-				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_PWM_SWITCH_1TO3, false);
-			}
-		} else {
-			/* 3 pulse code == 1 pulse func close && backlight high state*/
-			if (panel->pwm_params.oplus_pwm_switch_state == PWM_SWITCH_DC_STATE
-					&& !oplus_panel_pwm_onepulse_is_enabled(panel)) {
-				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_PWM_SWITCH_THREEPULSE, false);
-			}
+		/* 3 pulse code == 1 pulse func close && backlight high state*/
+		if (panel->pwm_params.oplus_pwm_switch_state == PWM_SWITCH_DC_STATE
+				&& !oplus_panel_pwm_onepulse_is_enabled(panel)) {
+			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_PWM_SWITCH_THREEPULSE, false);
 		}
 	}
 
 	mutex_unlock(&panel->panel_lock);
-
-	if (last_enable_state != panel->pwm_params.pwm_onepulse_enabled) {
-		oplus_adfr_set_min_fps_updated(panel);
-	}
-	panel->pwm_params.oplus_last_dynamic_pulse = panel->pwm_params.oplus_dynamic_pulse;
-	last_enable_state = panel->pwm_params.pwm_onepulse_enabled;
 
 	return rc;
 }
@@ -1043,12 +861,6 @@ int oplus_display_panel_set_pwm_pulse(void *data)
 
 	if (!panel->pwm_params.pwm_onepulse_support) {
 		LCD_WARN("Falied to set pwm onepulse status, because it is unsupport\n");
-		rc = -EFAULT;
-		return rc;
-	}
-
-	if (panel->power_mode != SDE_MODE_DPMS_ON) {
-		LCD_WARN("Skip set pwm switch, because display panel isn't power on\n");
 		rc = -EFAULT;
 		return rc;
 	}
@@ -1121,13 +933,7 @@ ssize_t oplus_set_pwm_pulse_debug(struct kobject *obj,
 	panel = display->panel;
 
 	if (!panel->pwm_params.pwm_onepulse_support) {
-		LCD_WARN("Falied to set pwm onepulse status, because it is unsupport\n");
-		rc = -EFAULT;
-		return rc;
-	}
-
-	if (panel->power_mode != SDE_MODE_DPMS_ON) {
-		LCD_WARN("Skip set pwm switch, because display panel isn't power on\n");
+		LCD_ERR("Falied to set pwm onepulse status, because it is unsupport\n");
 		rc = -EFAULT;
 		return rc;
 	}
@@ -1144,48 +950,5 @@ ssize_t oplus_set_pwm_pulse_debug(struct kobject *obj,
 	mutex_unlock(&display->display_lock);
 
 	return count;
-}
-
-int oplus_panel_pwm_get_pulse_state(void)
-{
-	int rc = 0;
-	struct dsi_display *display = get_main_display();
-	struct dsi_panel *panel = NULL;
-
-	if (!display || !display->panel) {
-		LCD_ERR("Invalid display or panel\n");
-		rc = -EINVAL;
-		return rc;
-	}
-
-	panel = display->panel;
-
-	if (panel->pwm_params.pwm_switch_support_extend_mode) {
-		if (panel->pwm_params.oplus_pwm_switch_state == PWM_SWITCH_DC_STATE) {
-			if(panel->pwm_params.oplus_dynamic_pulse == THREE_EIGHTEEN_PULSE) {
-				return PWM_STATE_L2;
-			} else {
-				return PWM_STATE_L1;
-			}
-		} else {
-			if(panel->pwm_params.oplus_dynamic_pulse == ONE_ONE_PULSE) {
-				return PWM_STATE_L1;
-			} else {
-				return PWM_STATE_L3;
-			}
-		}
-	} else {
-		if (oplus_panel_get_pwm_switch_support_dc(display->panel)
-				&& oplus_panel_pwm_onepulse_is_enabled(display->panel)) {
-			return PWM_STATE_L1;
-		} else if (oplus_panel_get_pwm_switch_state(display->panel) == PWM_SWITCH_HPWM_STATE
-				|| oplus_panel_pwm_onepulse_is_used(display->panel)) {
-			return PWM_STATE_L3;
-		} else {
-			return PWM_STATE_L2;
-		}
-	}
-	LCD_ERR("PWM_STATE is invalid\n");
-	return -EINVAL;
 }
 /* end onepulse switch debug */
