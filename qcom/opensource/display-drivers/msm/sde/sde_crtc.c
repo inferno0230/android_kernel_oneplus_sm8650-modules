@@ -2663,14 +2663,16 @@ static void _sde_crtc_dest_scaler_setup(struct drm_crtc *crtc)
 			hw_ctl = sde_crtc->mixers[lm_idx].hw_ctl;
 			hw_ds  = sde_crtc->mixers[lm_idx].hw_ds;
 
-			/* Setup op mode - Dual/single */
+			/* Setup op mode */
 			if (cfg->flags & SDE_DRM_DESTSCALER_ENABLE)
 				op_mode |= BIT(hw_ds->idx - DS_0);
 
+            if (cstate->num_ds_enabled == CRTC_DUAL_MIXERS_ONLY)
+				op_mode |= SDE_DS_OP_MODE_DUAL;
+			else if (cstate->num_ds_enabled == CRTC_QUAD_MIXERS)
+				op_mode |= SDE_DS_OP_MODE_QUAD;
+
 			if (hw_ds->ops.setup_opmode) {
-				op_mode |= (cstate->num_ds_enabled ==
-					CRTC_DUAL_MIXERS_ONLY) ?
-					SDE_DS_OP_MODE_DUAL : 0;
 				hw_ds->ops.setup_opmode(hw_ds, op_mode);
 				SDE_EVT32_VERBOSE(DRMID(crtc), op_mode);
 			}
@@ -6195,8 +6197,8 @@ static int _sde_crtc_check_zpos(struct drm_crtc_state *state,
 			SDE_ERROR("> %d plane stages assigned\n",
 					SDE_STAGE_MAX - SDE_STAGE_0);
 			return -EINVAL;
-		} else if (zpos_cnt == 2) {
-			SDE_ERROR("> 2 planes @ stage %d\n", z_pos);
+		} else if (sde_crtc->num_mixers && (zpos_cnt == 2*((sde_crtc->num_mixers + 1)/2))) {
+			SDE_ERROR("> %d planes @ stage %d\n", 2*((sde_crtc->num_mixers + 1)/2), z_pos);
 			return -EINVAL;
 		} else {
 			zpos_cnt++;

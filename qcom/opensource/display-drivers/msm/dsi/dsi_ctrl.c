@@ -71,6 +71,7 @@
 				fmt, c ? c->name : "inv", ##__VA_ARGS__); \
 	} while(0)
 #endif /* OPLUS_TRACKPOINT_REPORT */
+extern bool c_do_peripheral_flush;
 #endif /* OPLUS_FEATURE_DISPLAY */
 
 struct dsi_ctrl_list_item {
@@ -1662,18 +1663,16 @@ static int dsi_message_tx(struct dsi_ctrl *dsi_ctrl, struct dsi_cmd_desc *cmd_de
 
 		cmdbuf = (u8 *)(dsi_ctrl->vaddr);
 
+		for (cnt = 0; cnt < length; cnt++)
+			cmdbuf[dsi_ctrl->cmd_len + cnt] = buffer[cnt];
+
+		dsi_ctrl->cmd_len += length;
 #if defined(CONFIG_PXLW_IRIS)
 		if (!iris_is_chip_supported())
 			msm_gem_sync(dsi_ctrl->tx_cmd_buf);
 #else
 		msm_gem_sync(dsi_ctrl->tx_cmd_buf);
 #endif
-		for (cnt = 0; cnt < length; cnt++)
-			cmdbuf[dsi_ctrl->cmd_len + cnt] = buffer[cnt];
-
-		dsi_ctrl->cmd_len += length;
-		msm_gem_sync(dsi_ctrl->tx_cmd_buf);
-
 		if (*flags & DSI_CTRL_CMD_LAST_COMMAND) {
 			cmd_mem.length = dsi_ctrl->cmd_len;
 			dsi_ctrl->cmd_len = 0;

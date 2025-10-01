@@ -5676,12 +5676,20 @@ int oplus_sync_panel_brightness_v2(struct drm_encoder *drm_enc)
 	if (display == NULL)
 		return -EFAULT;
 
+    // TODO: CHECKOUT THIS PART LATER
+	if (display->panel->panel_mode == DSI_OP_VIDEO_MODE) {
+        if (!(is_project(23926) || is_project(23927) || is_project(23976) || is_project(23978)))
+            return -EFAULT;
+    }
+
 	cmd_enc = to_sde_encoder_phys_cmd(phys_encoder);
 	if (cmd_enc == NULL) {
 		return -EFAULT;
 	}
 
 	if (display->panel->panel_mode == DSI_OP_VIDEO_MODE) {
+        if (!(is_project(23926) || is_project(23927) || is_project(23976) || is_project(23978)))
+            return -EFAULT;
 		sync_backlight = c_conn->bl_need_sync;
 		display->panel->oplus_priv.need_sync = sync_backlight;
 		c_conn->bl_need_sync = false;
@@ -6261,6 +6269,36 @@ void sde_encoder_helper_hw_fence_sw_override(struct sde_encoder_phys *phys_enc,
 		ctl->ops.get_hw_fence_status(ctl) : SDE_EVTLOG_ERROR);
 	sde_encoder_helper_reset_mixers(phys_enc, NULL);
 	ctl->ops.hw_fence_trigger_sw_override(ctl);
+}
+
+int sde_encoder_update_periph_flush(struct drm_encoder *drm_enc)
+{
+	struct sde_encoder_virt *sde_enc;
+	struct sde_encoder_phys *phys;
+	int i;
+	struct sde_hw_ctl *ctl;
+
+	if (!drm_enc) {
+		SDE_ERROR("invalid encoder\n");
+		return -EINVAL;
+	}
+	sde_enc = to_sde_encoder_virt(drm_enc);
+
+	for (i = 0; i < sde_enc->num_phys_encs; i++) {
+		phys = sde_enc->phys_encs[i];
+
+		if (!test_bit(SDE_INTF_PERIPHERAL_FLUSH, &phys->hw_intf->cap->features))
+			return -ENOTSUPP;
+
+		if (phys && phys->hw_ctl) {
+			ctl = phys->hw_ctl;
+			ctl->ops.update_bitmask(ctl, SDE_HW_FLUSH_PERIPH,
+				phys->hw_intf->idx, 1);
+			SDE_EVT32(phys->hw_intf->idx);
+		}
+	}
+
+	return 0;
 }
 
 int sde_encoder_prepare_commit(struct drm_encoder *drm_enc)

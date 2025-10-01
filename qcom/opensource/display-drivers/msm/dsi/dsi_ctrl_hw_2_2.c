@@ -119,11 +119,11 @@ void dsi_ctrl_hw_22_schedule_dma_cmd(struct dsi_ctrl_hw *ctrl, int line_no,
 {
 	u32 reg = 0;
 
-	if (!do_peripheral_flush) {
-		reg = DSI_R32(ctrl, DSI_DMA_SCHEDULE_CTRL);
-		reg |= BIT(28);
-		reg |= (line_no & 0xffff);
-	}
+	reg = DSI_R32(ctrl, DSI_DMA_SCHEDULE_CTRL);
+	reg |= BIT(28);
+	reg |= (line_no & 0xffff);
+	if (do_peripheral_flush)
+		reg = 0;
 
 	DSI_W32(ctrl, DSI_DMA_SCHEDULE_CTRL, reg);
 	ctrl->reset_trig_ctrl = true;
